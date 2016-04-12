@@ -39,9 +39,7 @@ class DripSubject(models.Model):
     enabled = models.BooleanField(default=True)
 
 
-#class Drip(MPTTModel):
 class Drip(create_base_model()):
-#class Drip(models.Model):
     date = models.DateTimeField(auto_now_add=True)
     lastchanged = models.DateTimeField(auto_now=True)
     sequence = models.ForeignKey(Sequence, related_name='drips', blank=True, null=True, help_text="IMPORTANT: Choose a sequence even if a parent is selected. If no sequence is selected, it's assumed to be a broadcast email and will ONLY filter off the queryset you select below. If left empty, it grabs ALL users by default, even those who are not on a mailing list.")
