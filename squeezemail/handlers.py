@@ -2,7 +2,7 @@ import operator
 import functools
 
 import re
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, parse_qsl
+from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
 
 from django.conf import settings
 from django.core.urlresolvers import reverse
@@ -14,18 +14,18 @@ from django.utils.functional import cached_property
 from django.utils.importlib import import_module
 from django.core.mail import EmailMultiAlternatives
 from django.utils.html import strip_tags
+from django.contrib.sites.models import Site
+from django.contrib.auth import get_user_model
+
 from djcelery_email.utils import chunked
 from feincms.templatetags.feincms_tags import feincms_render_region
 
-from django.contrib.sites.models import Site
-
+from squeezemail import CELERY_EMAIL_CHUNK_SIZE
 from squeezemail.tasks import send_drip
 from .models import SendDrip, Open, Drip
-from .utils import get_user_model
 
 from django.utils.timezone import now
 import timedelta as djangotimedelta
-
 
 import logging
 
@@ -135,12 +135,12 @@ class DripMessage(object):
         Returns a replacement link
 
         Example of how this works:
-        raw_url = http://somedomain.com/?just=athingwedontcareabout # this can be your domain as well, it doesn't matter
+        original_url = http://somedomain.com/?just=athingwedontcareabout # this can be your domain as well, it doesn't matter
 
         Turns into:
         new_url = http://YOURDOMAIN.com/squeezemail/link/?user_id=1&drip_id=1&user_token=123456789&just=athingwedontcareabout&target=http://somedomain.com
 
-        When someone goes to the new_url link, it re-creates the original link, but also passes user_id, drip_id, etc
+        When someone goes to the new_url link, it re-creates the original url, but also passes user_id, drip_id, etc
         with it in case it's needed and redirects to the target url with the params.
         """
         parsed_url = urlparse(raw_url)
@@ -306,7 +306,7 @@ class HandleBase(object):
             try:
                 result = message_instance.message.send()
                 if result:
-                    SendDrip.objects.create(drip=self.drip_model, user=user)
+                    SendDrip.objects.create(drip=self.drip_model, user=user, sent=True)
                     count += 1
             except Exception as e:
                 logging.error("Failed to send drip %s to user %s: %s" % (self.drip_model.id, user, e))
@@ -333,38 +333,54 @@ class HandleDrip(HandleBase):
     def get_sequence_user_ids(self):
         # Gets all the user_ids that are active and are within the timeframe to receive this drip
         sequence = self.drip_model.sequence
-        today = timezone.now().date()
+        now = timezone.now()
+        delay = self.drip_model.delay
+
+        lt = now-djangotimedelta.parse(delay)
+        gte = lt - djangotimedelta.parse('1 days')
+
         user_ids = sequence.subscribers.filter(
             is_active=True,
-            sequence_date__contains=today-djangotimedelta.parse(str(self.drip_model.delay) + 'days')
+            sequence_date__gte=gte,
+            sequence_date__lt=lt
         ).values_list('user_id', flat=True)
         return user_ids
 
     def get_parent_sent_user_ids(self):
-        today = timezone.now().date()
+        now = timezone.now()
         parent_opened_required = self.drip_model.parent_opened
         #parent_clicked_required = self.drip_model.parent_clicked
         parent = self.drip_model.parent
         user_ids = None
 
+        lt = now-djangotimedelta.parse(self.drip_model.delay)
+        gte = lt - djangotimedelta.parse('1 days')
         # get users who received parent drip 'delay' days ago
         # (e.g. if drip.delay is 3, it'll get all users who received the parent drip 3 days ago
         # We only want SendDrips that have been sent.
         # A SendDrip's date gets a new timestamp when it's successfully sent.
         if parent_opened_required is None:
-            user_ids = parent.send_drips.filter(sent=True, date__contains=today-djangotimedelta.parse(str(self.drip_model.delay) + 'days')).values_list('user_id', flat=True)
+
+            user_ids = parent.send_drips.filter(sent=True,
+                                                date__gte=gte,
+                                                date__lt=lt,
+                                                ).values_list('user_id', flat=True)
         else:
             parent_open_ids = Open.objects.filter(sentdrip__drip_id=parent.id).values_list('id', flat=True)
             if parent_opened_required is True:
                 user_ids = parent.send_drips\
                     .filter(sent=True)\
                     .filter(open__in=parent_open_ids)\
-                    .filter(date__contains=today-djangotimedelta.parse(str(self.drip_model.delay) + 'days')).values_list('user_id', flat=True)
+                    .filter(date__gte=gte,
+                            date__lt=lt
+                            ).values_list('user_id', flat=True)
             elif parent_opened_required is False:
                 user_ids = parent.send_drips\
                     .exclude(open__in=parent_open_ids)\
                     .filter(sent=True)\
-                    .filter(date__contains=today-djangotimedelta.parse(str(self.drip_model.delay) + 'days')).values_list('user_id', flat=True)
+                    .filter(date__gte=gte,
+                            date__lt=lt
+                            ).values_list('user_id', flat=True)
         return user_ids
 
     def get_queryset(self):
@@ -430,8 +446,7 @@ class HandleDrip(HandleBase):
         """
         self.prune()
         self.create_unsent_drips()
-        self.queue_emails()
-        return
+        return self.queue_emails()
 
     def prune(self):
         """
@@ -447,7 +462,8 @@ class HandleDrip(HandleBase):
     def create_unsent_drips(self):
         """
         Create SendDrip objects for every user_id in the queryset. SendDrip.sent is False by default.
-        If your celery unknowingly dies for 24+ hours, this is a way to know who still needs to receive this drip.
+        If your celery/redis/whatever unknowingly dies for 24+ hours, this is a way to know who still needs to receive
+        this drip.
         """
         drip_id = self.drip_model.id
         user_id_list = self.get_queryset().values_list('id', flat=True)
@@ -471,11 +487,10 @@ class HandleDrip(HandleBase):
     def queue_emails(self, **kwargs):
         result_tasks = []
         kwargs['drip_id'] = self.drip_model.id
-        #user_id_list = self.get_queryset().values_list('id', flat=True)
-        # Get a list of all user IDs that haven't received this drip yet.
+        # Get a fresh list of all user IDs that haven't received this drip yet.
         user_id_list = SendDrip.objects.filter(drip_id=self.drip_model.id, sent=False).values_list('user_id', flat=True)
-
-        for chunk in chunked(user_id_list, settings.CELERY_EMAIL_CHUNK_SIZE):
+        chunk_size = CELERY_EMAIL_CHUNK_SIZE
+        for chunk in chunked(user_id_list, chunk_size):
             result_tasks.append(send_drip.delay(chunk, **kwargs))
         logging.info('drips queued')
         return result_tasks
@@ -485,20 +500,113 @@ class HandleDrip(HandleBase):
         Returns a queryset of auth.User who meet the
         criteria of the drip.
 
-        We grab only users who are still subscribed to this mailing list and are currently on the sequence, if applicable.
-
         IMPORTANT: If no sequence is set, it's assumed to be a broadcast email and sends to all users (whether they have
         a subscription or not). This is so you can broadcast a single email to a specific mailing list by adding
         'subscription__mailinglist_name' with the proper field value in the drip's queryset.
         """
-        # drip_sequence_id = self.drip_model.sequence_id
-        # if drip_sequence_id:
-        #     drip_mailing_list_id = self.drip_model.sequence.mailinglist_id
-        #     qs = get_user_model().objects\
-        #         .filter(squeeze_subscriptions__is_active=True)\
-        #         .filter(squeeze_subscriptions__mailinglist_id=drip_mailing_list_id)\
-        #         .filter(squeeze_subscriptions__sequence_id=drip_sequence_id)
-        # else:
-        #     qs = get_user_model().objects
         return get_user_model().objects
 
+
+class HandleDrop(HandleBase):
+    """
+    Sends a single drip email to a user. Built initially to send a welcome email.
+    """
+
+    def __init__(self, drip_model, user, *args, **kwargs):
+        self.drip_model = drip_model
+        self.user = user
+
+        if not self.user:
+            raise AttributeError('You must define a user')
+
+        self.now_shift_kwargs = kwargs.get('now_shift_kwargs', {})
+
+    def run(self):
+        """
+        Get the queryset, prune sent people, and send it.
+
+        We don't check if the drip is enabled here because
+        this will mainly be for sending our single drips to
+        a single user, enabled or not.
+        """
+
+        self.prune()
+        count = self.send()
+
+        return count
+
+    def queryset(self):
+        """
+        Returns a queryset of auth.User who meet the
+        criteria of the drip.
+
+        Alternatively, you could create Drips on the fly
+        using a queryset builder from the admin interface...
+        """
+        users = get_user_model().objects.filter(id=self.user.id)
+        return users
+
+
+def send_drop(user, drip_name):
+    """
+    Sends a single drip to a single user.
+    Mostly used to send a welcome email after a user subscribes to the newsletter.
+
+    The 'name' is required for some reason. The only requirement is that it exists, it seems.
+    It has nothing to do with getting any object.
+    """
+    drip = Drip.objects.get(name=drip_name) #get drip
+    return HandleDrop(drip_model=drip, user=user).run() #prunes and sends to user
+
+
+class ReSendDrop(HandleDrop):
+    """
+    This will ignore any filters or if they've already received this email before.
+    If someone emails asking for a lost email, this is what to use to re-send it to them.
+    """
+
+    def get_queryset(self):
+        try:
+            return self._queryset
+        except AttributeError:
+            self._queryset = self.queryset()
+            return self._queryset
+
+    def send(self):
+        """
+        Send the message to each user on the queryset. (should filter down to only 1 user)
+
+        No SentDrip is created for the user since we assume the email has been sent in the past already.
+
+        Returns count of created SentDrips. (should just be 1)
+        """
+
+        if not self.from_email:
+            self.from_email = getattr(settings, 'DRIP_FROM_EMAIL', settings.DEFAULT_FROM_EMAIL)
+        MessageClass = message_class_for(self.drip_model.message_class)
+
+        count = 0
+
+        for user in self.get_queryset():
+            message_instance = MessageClass(self, user)
+            result = message_instance.message.send()
+            if result:
+                count += 1
+
+        return count
+
+    def run(self):
+        """
+        Just send it. We don't care to prune or check if they've already received it or if they're active.
+        """
+        count = self.send()
+        return count
+
+
+def send_drop_to_email(email, drip_name):
+    """
+    Slightly simpler way to send a drop to an email without needing to pass the user
+    """
+    user = get_user_model().objects.get(email=email)
+    welcome_email = Drip.objects.get(name=drip_name)
+    return ReSendDrop(drip_model=welcome_email, user=user).run()

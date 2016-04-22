@@ -1,11 +1,10 @@
 import sys
 
 from django.db import models
-# from django.db.models import ForeignKey, OneToOneField, ManyToManyField
 from django.db.models.fields.related import ForeignObjectRel
 from django.core.mail import EmailMultiAlternatives, EmailMessage
+from django.utils.importlib import import_module
 
-# taking a nod from python-requests and skipping six
 _ver = sys.version_info
 is_py2 = (_ver[0] == 2)
 is_py3 = (_ver[0] == 3)
@@ -133,16 +132,6 @@ def get_simple_fields(Model, **kwargs):
     return [[f[0], f[3].__name__] for f in get_fields(Model, **kwargs)]
 
 
-def get_user_model():
-    # handle 1.7 and back
-    try:
-        from django.contrib.auth import get_user_model as django_get_user_model
-        User = django_get_user_model()
-    except ImportError:
-        from django.contrib.auth.models import User
-    return User
-
-
 def chunked(iterator, chunksize):
     """
     Yields items from 'iterator' in chunks of size 'chunksize'.
@@ -214,3 +203,10 @@ def dict_to_email(messagedict):
         ret.mixed_subtype = mixed_subtype
         messagedict["mixed_subtype"] = mixed_subtype  # bring back mixed subtype for 'retry'
     return ret
+
+
+def class_for(path):
+    mod_name, klass_name = path.rsplit('.', 1)
+    mod = import_module(mod_name)
+    klass = getattr(mod, klass_name)
+    return klass

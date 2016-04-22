@@ -9,6 +9,7 @@ from django.core.cache import cache
 
 from django.utils import timezone
 
+from squeezemail import SQUEEZE_PREFIX
 from squeezemail.models import SendDrip, Drip, Subscriber, Open, Click, DripSubject
 
 
@@ -42,11 +43,14 @@ LOCK_EXPIRE = (60 * 60) * 24  # Lock expires in 24 hours if it never gets unlock
 @task(bind=True)
 def send_drip(self, user_id_list, backend_kwargs=None, **kwargs):
     drip_id = kwargs['drip_id']
-    # The cache key consists of the task name and the MD5 digest
-    # of the feed URL.
+    first_user_id = user_id_list[0]
 
-    drip_url_hexdigest = md5(str(drip_id).encode('utf-8')).hexdigest() #TODO: salt this instead
-    lock_id = '{0}-lock-{1}'.format(self.name, drip_url_hexdigest)
+    # The cache key consists of the squeeze_prefix (if it exists), drip id, first user id in the list and the MD5 digest.
+    # This is to prevent a user receiving 1 email multiple times if 2+ identical tasks are queued. The workers tend
+    # to be so fast, that I've tested it without this and a user was able to receive 1 email ~10 times when a bunch of
+    # identical stale tasks were sitting in the queue waiting for celery to start. Haven't figured out a better way yet.
+    drip_id_hexdigest = md5(str(SQUEEZE_PREFIX).encode('utf-8') + str(drip_id).encode('utf-8') + '_'.encode('utf-8') + str(first_user_id).encode('utf-8')).hexdigest()
+    lock_id = '{0}-lock-{1}'.format(self.name, drip_id_hexdigest)
 
     # cache.add fails if the key already exists
     acquire_lock = lambda: cache.add(lock_id, 'true', LOCK_EXPIRE)
@@ -56,6 +60,7 @@ def send_drip(self, user_id_list, backend_kwargs=None, **kwargs):
 
     logger.debug('Attempting to aquire lock for drip_id %i', drip_id)
     if acquire_lock():
+        messages_sent = 0
         try:
             from squeezemail.handlers import message_class_for
             # backward compat: handle **kwargs and missing backend_kwargs
@@ -63,8 +68,6 @@ def send_drip(self, user_id_list, backend_kwargs=None, **kwargs):
             if backend_kwargs is not None:
                 combined_kwargs.update(backend_kwargs)
             combined_kwargs.update(kwargs)
-
-
 
             try:
                 drip = Drip.objects.get(id=drip_id)
@@ -78,8 +81,6 @@ def send_drip(self, user_id_list, backend_kwargs=None, **kwargs):
                 conn.open()
             except Exception as e:
                 logger.exception("Cannot reach EMAIL_BACKEND %s. (%r)", settings.EMAIL_BACKEND, e)
-
-            messages_sent = 0
 
             for user_id in user_id_list:
                 try:
@@ -116,7 +117,7 @@ def send_drip(self, user_id_list, backend_kwargs=None, **kwargs):
                     logger.warning("Multiple SentDrips returned for user_id: %i, drip_id: %i", user_id, drip_id)
                     continue
                 except SendDrip.DoesNotExist:
-                    # an unsent sentdrip doesn't exist, don't do anything
+                    # an unsent senddrip doesn't exist, shouldn't happen, but if it does, skip it
                     logger.warning("Can't find a SendDrip object for user_id: %i, drip_id: %i", user_id, drip_id)
                     continue
             conn.close()
@@ -208,9 +209,6 @@ def process_click(**kwargs):
 
     logger.info("Email click processed")
     return
-
-
-#SendDripTask = send_drip
 
 try:
     from celery.utils.log import get_task_logger
