@@ -1,8 +1,15 @@
+import sys
 import operator
 import functools
 
+PY3 = sys.version_info > (3, 0)
+
 import re
-from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
+if PY3:
+    from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
+else:
+    from urlparse import urlparse, urlunparse, parse_qsl
+    from urllib import urlencode
 
 from django.conf import settings
 from django.core.urlresolvers import reverse
@@ -17,12 +24,13 @@ from django.utils.html import strip_tags
 from django.contrib.sites.models import Site
 from django.contrib.auth import get_user_model
 
-from djcelery_email.utils import chunked
+
 from feincms.templatetags.feincms_tags import feincms_render_region
 
-from squeezemail import CELERY_EMAIL_CHUNK_SIZE
-from squeezemail.tasks import send_drip
+from . import CELERY_EMAIL_CHUNK_SIZE
+from .tasks import send_drip
 from .models import SendDrip, Open, Drip
+from .utils import chunked
 
 from django.utils.timezone import now
 import timedelta as djangotimedelta
