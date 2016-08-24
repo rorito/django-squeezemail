@@ -137,9 +137,10 @@ class DripMessage(object):
         offset = 0
         for match in HREF_RE.finditer(content):
             link = match.group(1)
-            replacelink = self.encode_url(link)
-            content = ''.join((content[:match.start(1)+offset], replacelink, content[match.end(1)+offset:]))
-            offset += len(replacelink) - len(match.group(1))
+            if "nourlrewrite" not in link:
+                replacelink = self.encode_url(link)
+                content = ''.join((content[:match.start(1)+offset], replacelink, content[match.end(1)+offset:]))
+                offset += len(replacelink) - len(match.group(1))
         return content
 
     def encode_url(self, raw_url):
