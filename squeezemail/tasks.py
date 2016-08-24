@@ -112,7 +112,11 @@ def send_drip(self, user_id_list, backend_kwargs=None, **kwargs):
                         logger.warning("User_id %i does not exist. (%r)", user_id, e)
                         continue
                     except Exception as e:
-                        logger.warning("Failed to send email message to %i. (%r)", user_id, e)
+                        logger.exception("Failed to send email message to %i. (%r)", user_id, e)
+                        import sys, traceback
+                        ex_type, ex, tb = sys.exc_info()
+                        traceback.print_tb(tb)
+                        del tb
                         #send_drip.retry([[message], combined_kwargs], exc=e, throw=False)
                         continue
                 except SendDrip.MultipleObjectsReturned:
