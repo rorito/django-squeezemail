@@ -11,20 +11,26 @@ from django.template import Context, Template
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.functional import cached_property
-from django.utils.importlib import import_module
 from django.core.mail import EmailMultiAlternatives
 from django.utils.html import strip_tags
 from django.contrib.sites.models import Site
 from django.contrib.auth import get_user_model
+from django.utils.timezone import now
+try:
+    # Django >= 1.9
+    from django.utils.module_loading import import_module
+except ImportError:
+    from django.utils.importlib import import_module
 
-from djcelery_email.utils import chunked
+
 from feincms.templatetags.feincms_tags import feincms_render_region
 
+from .utils import get_token_for_user
 from squeezemail import CELERY_EMAIL_CHUNK_SIZE
-from squeezemail.tasks import send_drip
+from .tasks import send_drip
 from .models import SendDrip, Open, Drip
+from .utils import chunked
 
-from django.utils.timezone import now
 import timedelta as djangotimedelta
 
 import logging
@@ -135,13 +141,14 @@ class DripMessage(object):
         Returns a replacement link
 
         Example of how this works:
-        original_url = http://somedomain.com/?just=athingwedontcareabout # this can be your domain as well, it doesn't matter
+        Here's an ordinary link in your email. There may be many of these in each email.
+        original_url = http://anydomain.com/?just=athingwedontcareabout&but=letsmakeitinteresting
 
         Turns into:
-        new_url = http://YOURDOMAIN.com/squeezemail/link/?user_id=1&drip_id=1&user_token=123456789&just=athingwedontcareabout&target=http://somedomain.com
+        new_url = http://YOURDOMAIN.com/squeezemail/link/?sq_user_id=1&sq_drip_id=1&sq_user_token=123456789&just=athingwedontcareabout&but=letsmakeitinteresting&sq_target=http://somedomain.com
 
-        When someone goes to the new_url link, it re-creates the original url, but also passes user_id, drip_id, etc
-        with it in case it's needed and redirects to the target url with the params.
+        When someone goes to the above new_url link, it'll hit our function at /link/ which re-creates the original url, but also passes user_id, drip_id, etc
+        with it in case it's needed and redirects to the target url with the params. This is also where we throw some stats at Google Analytics.
         """
         parsed_url = urlparse(raw_url)
 
@@ -188,7 +195,7 @@ class DripMessage(object):
     @property
     def get_user_token(self):
         if not self._user_token:
-            self._user_token = str(self.user.get_token())
+            self._user_token = str(get_token_for_user(self.user))
         return self._user_token
 
 

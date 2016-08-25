@@ -6,11 +6,13 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.mail import get_connection
 from django.core.cache import cache
-
 from django.utils import timezone
 
+from google_analytics_reporter.tracking import Event
+
 from squeezemail import SQUEEZE_PREFIX
-from squeezemail.models import SendDrip, Drip, Subscriber, Open, Click, DripSubject
+from .models import SendDrip, Drip, Subscriber, Open, Click, DripSubject
+from .utils import get_token_for_user
 
 
 # from squeezemail.utils import email_to_dict, dict_to_email
@@ -136,6 +138,7 @@ def process_open(**kwargs):
     user_token = url_kwargs.get('sq_user_token', None)
     user_id = url_kwargs.get('sq_user_id', None)
     drip_id = url_kwargs.get('sq_drip_id', None)
+    ga_cid = url_kwargs.get('sq_cid', None)
 
     subject_id = url_kwargs.get('sq_subject_id', None)
     split = url_kwargs.get('sq_split', None)
@@ -159,6 +162,18 @@ def process_open(**kwargs):
                 # utm_content=split ('A' or 'B')
                 # target=target # don't need this for opens, but would be useful in clicks
                 # event = 'open'?
+                Event(user_id=user_id, client_id=ga_cid)\
+                    .debug(
+                    category='email',
+                    action='open',
+                    document_path='/email/',
+                    document_title=subject,
+                    campaign_id=drip_id,
+                    campaign_name=sentdrip.drip.name,
+                    campaign_source='',
+                    campaign_medium='email',
+                    campaign_content=split
+                )
         else:
             logger.info("user_token didn't match user id token")
 
@@ -178,7 +193,7 @@ def process_click(**kwargs):
 
     if user_token:  # if a user token is passed in and matched, we're allowed to do database writing
         user = get_user_model().objects.get(pk=user_id)
-        token_matched = user.match_token(user_token)
+        token_matched = str(user_token) == str(get_token_for_user(user))
 
         if token_matched:
             logger.debug("Successfully matched token to user %r.", user.email)

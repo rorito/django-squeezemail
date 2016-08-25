@@ -3,8 +3,15 @@ import sys
 from django.db import models
 from django.db.models.fields.related import ForeignObjectRel
 from django.core.mail import EmailMultiAlternatives, EmailMessage
-from django.utils.importlib import import_module
+try:
+    # Django >= 1.9
+    from django.utils.module_loading import import_module
+except ImportError:
+    from django.utils.importlib import import_module
 
+import hashlib
+
+from django.conf import settings
 _ver = sys.version_info
 is_py2 = (_ver[0] == 2)
 is_py3 = (_ver[0] == 3)
@@ -210,3 +217,8 @@ def class_for(path):
     mod = import_module(mod_name)
     klass = getattr(mod, klass_name)
     return klass
+
+
+def get_token_for_user(user):
+    m = hashlib.md5(user.email + settings.SECRET_KEY).hexdigest()
+    return m

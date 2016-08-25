@@ -3,6 +3,7 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 # from django.core.urlresolvers import reverse
 from django.http import HttpResponseRedirect, HttpResponse
 
+from google_analytics_reporter.utils import get_client_id
 from .tasks import process_click, process_open
 
 
@@ -29,6 +30,7 @@ def drip_open(request):
             sq_params[key] = value
         else:
             orig_params[key] = value
+    sq_params['sq_cid'] = get_client_id(request)
     process_open.delay(**sq_params)
     return HttpResponse(status=204)
 
@@ -45,7 +47,7 @@ def link_click(request):
             sq_params[key] = value
         else:
             orig_params[key] = value
-
+    sq_params['sq_cid'] = get_client_id(request)
     #send sq_params to task for further processing (stats, database operations for user, etc)
     process_click.delay(**sq_params)
 

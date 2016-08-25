@@ -69,7 +69,7 @@ class Drip(create_base_model()):
                                                                                "sequence. 0 is same day (immediate), 1 "
                                                                                "is one day old before sending. If a "
                                                                                "parent is selected, delays off of when "
-                                                                               "the parent was sent to the user instead."
+                                                                               "the parent drip was sent to the user instead."
                                                                                "Use 1 (or more) if a parent is selected, "
                                                                                "otherwise they'll get 2 emails in 1 day.")
     name = models.CharField(

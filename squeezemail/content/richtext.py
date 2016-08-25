@@ -1,7 +1,7 @@
 # from django.core import files
 # from django.db import models
-from django.core.urlresolvers import reverse
-from django.forms.util import ErrorList
+# from django.core.urlresolvers import reverse
+from django.forms.utils import ErrorList
 from django.template import Context, Template, TemplateSyntaxError
 # from django.template.loader import render_to_string
 # from django.utils.safestring import mark_safe
@@ -10,7 +10,8 @@ from django.utils.translation import ugettext_lazy as _
 #from pennyblack import settings
 #from ..models.link import check_if_redirect_url, is_link
 
-from feincms.content.richtext.models import RichTextContentAdminForm, RichTextContent
+# from feincms.content.richtext.models import RichTextContentAdminForm, RichTextContent
+from feincms.content.richtext.models import RichTextContent
 # from feincms.module.medialibrary.models import MediaFile
 
 import re
@@ -35,16 +36,16 @@ HREF_RE = re.compile(r'href\="((\{\{[^}]+\}\}|[^"><])+)"')
 #             'request': request
 #         })
 
-class NewsletterSectionAdminForm(RichTextContentAdminForm):
-    def clean(self):
-        cleaned_data = super(NewsletterSectionAdminForm, self).clean()
-        try:
-            t = Template(cleaned_data['text'])
-        except TemplateSyntaxError as e:
-            self._errors["text"] = ErrorList([e])
-        except KeyError:
-            pass
-        return cleaned_data
+# class NewsletterSectionAdminForm(RichTextContentAdminForm):
+#     def clean(self):
+#         cleaned_data = super(NewsletterSectionAdminForm, self).clean()
+#         try:
+#             t = Template(cleaned_data['text'])
+#         except TemplateSyntaxError as e:
+#             self._errors["text"] = ErrorList([e])
+#         except KeyError:
+#             pass
+#         return cleaned_data
 
     # class Meta:
     #     exclude = ('image_thumb', 'image_width', 'image_height', 'image_url_replaced')
