@@ -1,3 +1,5 @@
+    **This repo is mainly used as a place to put my pre-alpha ideas for squeezemail at the moment. It's not meant to be used in production at the moment.**
+
 ===========
 Squeezemail
 ===========

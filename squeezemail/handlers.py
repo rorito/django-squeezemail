@@ -1,8 +1,15 @@
+import sys
 import operator
 import functools
 
+PY3 = sys.version_info > (3, 0)
+
 import re
-from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
+if PY3:
+    from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
+else:
+    from urlparse import urlparse, urlunparse, parse_qsl
+    from urllib import urlencode
 
 from django.conf import settings
 from django.core.urlresolvers import reverse
@@ -21,7 +28,6 @@ try:
     from django.utils.module_loading import import_module
 except ImportError:
     from django.utils.importlib import import_module
-
 
 from feincms.templatetags.feincms_tags import feincms_render_region
 
