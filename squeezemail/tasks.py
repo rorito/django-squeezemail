@@ -102,12 +102,18 @@ def send_drip(self, user_id_list, backend_kwargs=None, **kwargs):
                             message_instance = MessageClass(drip, user)
 
                             sent = conn.send_messages([message_instance.message])
-                            if sent is not None:
-                                sentdrip.sent = True
-                                sentdrip.date = timezone.now()
-                                sentdrip.save()
-                                messages_sent += 1
-                                logger.debug("Successfully sent email message to %r.", user.email)
+
+                            # note: if you're using django-post_office, send_messages() doesn't
+                            # have a return value (partially because it supports delayed sending via celery).
+                            # So we're just going to have to trust that Post Office is delivering the emails
+                            # and if the delivery fails, we can re-send throught the post office admin
+                            # uncomment if using an email backend where send_message returns a value -
+                            # if sent is not None:
+                            sentdrip.sent = True
+                            sentdrip.date = timezone.now()
+                            sentdrip.save()
+                            messages_sent += 1
+                            logger.debug("Successfully sent email message to %r.", user.email)
                     except ObjectDoesNotExist as e: #user doesn't exist
                         logger.warning("User_id %i does not exist. (%r)", user_id, e)
                         continue
