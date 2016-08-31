@@ -122,6 +122,8 @@ def send_drip(self, user_id_list, backend_kwargs=None, **kwargs):
                         import sys, traceback
                         ex_type, ex, tb = sys.exc_info()
                         traceback.print_tb(tb)
+                        print ex_type
+                        print ex
                         del tb
                         #send_drip.retry([[message], combined_kwargs], exc=e, throw=False)
                         continue
