@@ -128,11 +128,10 @@ class DripMessage(object):
             # TODO store smtpapi headers for sendgrid unsubscribe groups in Drip model
             # hard-code unsubscribe group header for sendgrid
             headers = {
-                'X-SMTPAPI': {
+                "X-SMTPAPI": json.dumps({
                     "asm_group_id": 991
-                }
+                })
             }
-
             self._message = EmailMultiAlternatives(
             self.subject, self.plain, self.from_email, [self.user.email], headers=headers)
 
