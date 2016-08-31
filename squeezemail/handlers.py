@@ -125,8 +125,16 @@ class DripMessage(object):
     @property
     def message(self):
         if not self._message:
+            # TODO store smtpapi headers for sendgrid unsubscribe groups in Drip model
+            # hard-code unsubscribe group header for sendgrid
+            headers = {
+                'X-SMTPAPI': {
+                    "asm_group_id": 991
+                }
+            }
+
             self._message = EmailMultiAlternatives(
-                self.subject, self.plain, self.from_email, [self.user.email])
+            self.subject, self.plain, self.from_email, [self.user.email], headers=headers)
 
             # check if there are html tags in the rendered template
             if len(self.plain) != len(self.body):
