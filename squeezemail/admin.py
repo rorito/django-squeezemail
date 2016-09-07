@@ -4,11 +4,19 @@ import json
 from django import forms
 from django.contrib import admin
 
-from .models import Drip, SendDrip, QuerySetRule, DripSubject, MailingList, Sequence, Subscriber
+from .models import Drip, SendDrip, QuerySetRule, DripSubject, Subscriber, RichText, Campaign, Subscription
 from .handlers import configured_message_classes, message_class_for
 from django.contrib.auth import get_user_model
 
-from feincms.admin import item_editor, tree_editor
+# from feincms.admin import item_editor, tree_editor
+from django.db import models
+
+from content_editor.admin import (
+    ContentEditor, ContentEditorInline
+)
+
+# from .models import Drip, RichText
+from mptt.admin import MPTTModelAdmin, DraggableMPTTAdmin
 
 
 class DripSplitSubjectInline(admin.TabularInline):
@@ -30,19 +38,39 @@ class DripForm(forms.ModelForm):
         exclude = []
 
 
-class MailingListAdmin(admin.ModelAdmin):
+
+class CampaignAdmin(admin.ModelAdmin):
     pass
-
-
-class SequenceAdmin(admin.ModelAdmin):
-    pass
-
 
 class SubscriberAdmin(admin.ModelAdmin):
     pass
 
+class SubscriptionAdmin(admin.ModelAdmin):
+    pass
 
-class DripAdmin(item_editor.ItemEditor):
+
+class RichTextarea(forms.Textarea):
+    def __init__(self, attrs=None):
+        default_attrs = {'class': 'richtext'}
+        if attrs:
+            default_attrs.update(attrs)
+        super(RichTextarea, self).__init__(default_attrs)
+
+
+class RichTextInline(ContentEditorInline):
+    model = RichText
+    formfield_overrides = {
+        models.TextField: {'widget': RichTextarea},
+    }
+
+    class Media:
+        js = (
+            '//cdn.ckeditor.com/4.5.6/standard/ckeditor.js',
+            'plugin_ckeditor.js',
+        )
+
+
+class DripAdmin(ContentEditor, DraggableMPTTAdmin):
     # fieldsets = [
     #     (None, {
     #         'fields': ['enabled', 'name', 'message_class'],
@@ -50,10 +78,21 @@ class DripAdmin(item_editor.ItemEditor):
     #     #('Important things', {'fields': ('DripSplitSubjectInline',)}),
     #     item_editor.FEINCMS_CONTENT_FIELDSET,
     #     ]
-    list_display = ('name', 'enabled', 'message_class')
+    list_display=(
+        'tree_actions',
+        'indented_title',
+        'enabled',
+        'message_class'
+        # ...more fields if you feel like it...
+    )
+    list_display_links=(
+        'indented_title',
+    )
+    # list_display = ('name', 'enabled', 'message_class')
     inlines = [
         DripSplitSubjectInline,
-        QuerySetRuleInline
+        QuerySetRuleInline,
+        RichTextInline
     ]
     form = DripForm
 
@@ -134,8 +173,8 @@ class DripAdmin(item_editor.ItemEditor):
         )
         return my_urls + urls
 
-admin.site.register(MailingList, MailingListAdmin)
-admin.site.register(Sequence, SequenceAdmin)
+admin.site.register(Campaign, CampaignAdmin)
+admin.site.register(Subscription, SubscriptionAdmin)
 admin.site.register(Drip, DripAdmin)
 admin.site.register(Subscriber, SubscriberAdmin)
 
@@ -143,4 +182,13 @@ admin.site.register(Subscriber, SubscriberAdmin)
 class SentDripAdmin(admin.ModelAdmin):
     list_display = [f.name for f in SendDrip._meta.fields]
     ordering = ['-id']
+
 admin.site.register(SendDrip, SentDripAdmin)
+
+# admin.site.register(
+#     Drip, ContentEditor,
+#     # inlines=[
+#     #     RichTextInline,
+#     #     # ContentEditorInline.create(model=Download),
+#     # ],
+# )

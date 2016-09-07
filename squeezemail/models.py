@@ -21,34 +21,48 @@ from squeezemail import SUBSCRIBER_MANAGER
 #from squeezemail.handlers import send_drop
 from squeezemail.utils import class_for
 
+from mptt.models import MPTTModel, TreeForeignKey
+from content_editor.models import (
+    Template, Region, create_plugin_base
+)
+from feincms3 import plugins
 
-class MailingList(models.Model):
-    name = models.CharField(max_length=75)
+STATUS_CHOICES = (
+    ('draft', 'Draft'),
+    ('paused', 'Paused'),
+    ('active', 'Active'),
+)
 
-    def __str__(self):
-        return self.name
+# class Funnel(models.Model):
+#     pass
+#
+#
+# class Step(models.Model):
+#     parent = TreeForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children', db_index=True)
 
 
-class Sequence(models.Model):
-    mailinglist = models.ForeignKey(MailingList, related_name='sequences')
-    name = models.CharField(max_length=75)
-
-    def __str__(self):
-        return self.name
 
 
 class DripSubject(models.Model):
     drip = models.ForeignKey('squeezemail.Drip', related_name='subjects')
-    subject = models.CharField(max_length=150)
+    text = models.CharField(max_length=150)
     enabled = models.BooleanField(default=True)
 
 
-class Drip(create_base_model()):
+class Drip(MPTTModel):
     TYPE_CHOICES = (
         ('drip', 'Drip'),
         ('broadcast', 'Broadcast'),
     )
-
+    parent = TreeForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True, blank=True, related_name='children', db_index=True)
+    regions = [
+        Region(key='body', title='Main Body'),
+        # Region(key='split_test', title='Split Test Body',
+        #        inherited=False),
+    ]
     date = models.DateTimeField(auto_now_add=True)
     lastchanged = models.DateTimeField(auto_now=True)
     type = models.CharField(max_length=10, choices=TYPE_CHOICES, default='drip',
@@ -57,13 +71,11 @@ class Drip(create_base_model()):
                                       "filter/exclude which users will receive broadcast emails. "
                                       "Broadcast completely ignores sequence, parent, mailing list fields."
                                       "Choose 'Drip' for normal drips.")
-    sequence = models.ForeignKey('squeezemail.Sequence', related_name='drips', blank=True, null=True, help_text="IMPORTANT: Choose a sequence even if a parent is selected. If no sequence is selected, it's assumed to be a broadcast email and will ONLY filter off the queryset you select below. If left empty, it grabs ALL users by default, even those who are not on a mailing list.")
-    parent = models.ForeignKey('self', blank=True, null=True, related_name='children', help_text="Choosing a drip parent will 'delay' off of when the parent was sent. to delay this drip from when the parent was sent to the user")
-    parent_opened = models.NullBooleanField(help_text="Only send to users who opened parent drip. True will only send to users who opened parent drip, False will only send to users who didn't. Choose Null if this isn't applicable to your drip.")
-    parent_clicked = models.NullBooleanField(help_text="Only send to users who clicked a link in parent drip's body content. True will only send to users who clicked parent drip, False will only send to users who didn't. Choose Null if this isn't applicable to your drip.")
-    # field_value = models.CharField(max_length=255,
-    #     help_text=('Can be anything from a number, to a string. Or, do ' +
-    #                '`now-7 days` or `today+3 days` for fancy timedelta.'))
+    campaign = models.ForeignKey('squeezemail.Campaign', related_name='drips', blank=True, null=True, help_text="IMPORTANT: Choose a sequence even if a parent is selected. If no sequence is selected, it's assumed to be a broadcast email and will ONLY filter off the queryset you select below. If left empty, it grabs ALL users by default, even those who are not on a mailing list.")
+
+    # parent_opened = models.NullBooleanField(help_text="Only send to users who opened parent drip. True will only send to users who opened parent drip, False will only send to users who didn't. Choose Null if this isn't applicable to your drip.")
+    # parent_clicked = models.NullBooleanField(help_text="Only send to users who clicked a link in parent drip's body content. True will only send to users who clicked parent drip, False will only send to users who didn't. Choose Null if this isn't applicable to your drip.")
+
     delay = models.CharField(default=1, max_length=255, verbose_name="Day Delay", help_text="Delay in how many days from when the "
                                                                                "subscriber started their current "
                                                                                "sequence. 0 is same day (immediate), 1 "
@@ -90,8 +102,8 @@ class Drip(create_base_model()):
         help_text="Set a name for a custom from email.")
     message_class = models.CharField(max_length=120, blank=True, default='default')
 
-    class Meta:
-        unique_together = ('name', 'sequence')
+    # class Meta:
+    #     unique_together = ('name', 'sequence')
         #ordering = ['tree_id', 'lft']
 
     @property
@@ -102,6 +114,10 @@ class Drip(create_base_model()):
 
     def __str__(self):
         return "%s [Day %s]" % (self.name, self.delay)
+
+    @cached_property
+    def subject(self):
+        return self.choose_split_test_subject.text
 
     @cached_property
     def get_split_test_subjects(self):
@@ -127,15 +143,15 @@ class SendDrip(models.Model):
     Has OneToOne relations for open, click, spam, unsubscribe. Calling self.opened will return a boolean.
     If it exists, it returns True, and you can assume it has been opened.
     This is done this way to save database space, since the majority of sentdrips won't even be opened, and to add extra
-    data (such as timestamps) to filter off, so you can see your open rate for a drip within the past 24 hours.
+    data (such as timestamps) to filter off, so you could see your open rate for a drip within the past 24 hours.
     """
     date = models.DateTimeField(auto_now_add=True)
     drip = models.ForeignKey('squeezemail.Drip', related_name='send_drips')
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='send_drips')
+    subscriber = models.ForeignKey('squeezemail.Subscriber', related_name='send_drips')
     sent = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = ('drip', 'user')
+        unique_together = ('drip', 'subscriber')
 
     @property
     def opened(self):
@@ -204,7 +220,7 @@ class QuerySetRule(models.Model):
     drip = models.ForeignKey('squeezemail.Drip', related_name='queryset_rules')
 
     method_type = models.CharField(max_length=12, default='filter', choices=METHOD_TYPES)
-    field_name = models.CharField(max_length=128, verbose_name='Field name of User')
+    field_name = models.CharField(max_length=128, verbose_name='Field name of Subscriber')
     lookup_type = models.CharField(max_length=12, default='exact', choices=LOOKUP_TYPES)
 
     field_value = models.CharField(max_length=255,
@@ -296,11 +312,12 @@ class SubscriberManager(models.Manager):
         If subscriber doesn't exist, get an existing user by email
         if user doesn't exist, create a newsletter only user and subscribe them to the newsletter group
         """
-        mailinglist = MailingList.objects.get(name=optin_list)
+        # mailinglist = MailingList.objects.get(name=optin_list)
+        campaign = Campaign.objects.get(name=optin_list)
 
         try:
             #Try to get existing subscriber to this group
-            subscriber = self.get(user__email=email, mailinglist=mailinglist)
+            subscriber = self.get(user__email=email)
         except self.model.DoesNotExist:
             from squeezemail.handlers import send_drop
             User = get_user_model()
@@ -312,9 +329,9 @@ class SubscriberManager(models.Manager):
                 user = User.objects.create_newsletter_user(email=email, **kwargs)
 
             #create a subscriber, being sure to get the most accurate time is absolutely required
-            subscriber = self.create(user=user, mailinglist=mailinglist, subscribe_date=timezone.now())
-
-            #Email welcome email to only newly created subscriber
+            subscriber = self.create(user=user)
+            # subscription = CampaignSubscription.objects.get
+            # Email welcome email to only newly created subscriber
             send_drop(user=subscriber.user, drip_name="Newsletter Welcome Email")
         return subscriber
 
@@ -329,22 +346,45 @@ subscriber_manager = class_for(SUBSCRIBER_MANAGER)()
 #subscriber_manager = SubscriberManager()
 
 
+class Campaign(models.Model):
+    status = models.TextField(choices=STATUS_CHOICES)
+    name = models.TextField()
+    from_name = models.TextField()
+    from_email = models.TextField()
+    # send_on_days
+    start_now = models.BooleanField(default=False)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+    def email_count(self):
+        # How many drips/emails this campaign has
+        return self.drips.count()
+
+    def active_subscriber_count(self):
+        return self.subscribers.filter(is_active=True)
+
+    def unsubscribed_subscriber_count(self):
+        return
+
+    def email_open_rate(self):
+        return
+
+    def email_click_rate(self):
+        return
+
+
 class Subscriber(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="squeeze_subscriptions")
-    mailinglist = models.ForeignKey('squeezemail.MailingList', related_name='subscribers')
-    sequence = models.ForeignKey('squeezemail.Sequence', related_name='subscribers', null=True, blank=True)
-    sequence_date = models.DateTimeField(verbose_name="Started Sequence Date", default=timezone.now, null=True, blank=True)
-    subscribe_date = models.DateTimeField(verbose_name="Subscribe Date", default=timezone.now)
-    unsubscribe_date = models.DateTimeField(verbose_name="Unsubscribe Date", null=True, blank=True)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, related_name="squeeze_subscriber")
     is_active = models.BooleanField(verbose_name="Active", default=True)
+    created = models.DateTimeField(auto_now_add=True)
+
+    # current_step = models.ForeignKey('squeezemail.Step')
 
     objects = subscriber_manager
     default_manager = subscriber_manager
-
-    class Meta:
-        verbose_name = "Subscriber"
-        verbose_name_plural = "Subscribers"
-        unique_together = ('user', 'sequence')
 
     def __str__(self):
         return self.user.email
@@ -353,25 +393,93 @@ class Subscriber(models.Model):
         if self.is_active:
             self.is_active = False
             self.unsubscribe_date = timezone.now()
-            # if self.user.optin is True:
-            #     self.user.optin = False
-            #     self.user.save()
             self.save()
         return
 
-    def move_to_sequence(self, sequence_pk):
-        self.sequence_id = sequence_pk
-        self.sequence_date = timezone.now()
-        self.save()
-        return
+    # def move_to_campaign(self, campaign_pk):
+    #     self.campaign_id = sequence_pk
+    #     self.sequence_date = timezone.now()
+    #     self.save()
+    #     return
 
-    # @classmethod
-    # def register_extension(cls, register_fn):
-    #     """
-    #     Call the register function of an extension. You must override this
-    #     if you provide a custom ModelAdmin class and want your extensions to
-    #     be able to patch stuff in.
-    #     """
-    #     register_fn(cls, NewsletterSubscriberAdmin)
+    def opened_email(self, drip):
+        return self.send_drips.get(id=drip.id).opened
 
 
+class Subscription(models.Model):
+    campaign = models.ForeignKey('squeezemail.Campaign', related_name="subscribers")
+    subscriber = models.ForeignKey('squeezemail.Subscriber', related_name="subscriptions")
+    subscribe_date = models.DateTimeField(verbose_name="Subscribe Date", default=timezone.now)
+    status = models.TextField(choices=STATUS_CHOICES)
+    is_complete = models.BooleanField(default=False)
+    lap = models.IntegerField(default=1)
+    last_send_drip = models.ForeignKey('squeezemail.SendDrip')
+
+
+# class Subscriber(models.Model):
+#     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="squeeze_subscriptions")
+#     mailinglist = models.ForeignKey('squeezemail.MailingList', related_name='subscribers')
+#     sequence = models.ForeignKey('squeezemail.Sequence', related_name='subscribers', null=True, blank=True)
+#     sequence_date = models.DateTimeField(verbose_name="Started Sequence Date", default=timezone.now, null=True, blank=True)
+#     subscribe_date = models.DateTimeField(verbose_name="Subscribe Date", default=timezone.now)
+#     unsubscribe_date = models.DateTimeField(verbose_name="Unsubscribe Date", null=True, blank=True)
+#     is_active = models.BooleanField(verbose_name="Active", default=True)
+#
+#     objects = subscriber_manager
+#     default_manager = subscriber_manager
+#
+#     class Meta:
+#         verbose_name = "Subscriber"
+#         verbose_name_plural = "Subscribers"
+#         unique_together = ('user', 'sequence')
+#
+#     def __str__(self):
+#         return self.user.email
+#
+#     def unsubscribe(self):
+#         if self.is_active:
+#             self.is_active = False
+#             self.unsubscribe_date = timezone.now()
+#             # if self.user.optin is True:
+#             #     self.user.optin = False
+#             #     self.user.save()
+#             self.save()
+#         return
+#
+#     def move_to_sequence(self, sequence_pk):
+#         self.sequence_id = sequence_pk
+#         self.sequence_date = timezone.now()
+#         self.save()
+#         return
+
+
+# class Funnel(MPTTModel):
+#     parent = TreeForeignKey(
+#         'self',
+#         on_delete=models.CASCADE,
+#         null=True, blank=True, related_name='children', db_index=True)
+#     name = models.TextField() #Main Funnel
+#     status = models.TextField(choices=STATUS_CHOICES, default='draft') #active, draft, paused, all...?
+#     created = models.DateTimeField(auto_now_add=True)
+    # subscriber
+    # drip
+    # tags
+    # prospect #boolean
+#
+#
+# class Action(models.Model):
+#     label = models.TextField()
+#
+#
+# class Event(models.Model):
+#     subscriber = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="events")
+#     action = models.ForeignKey('squeezemail.Action')
+#     occurred_at = models.DateTimeField(auto_now_add=True)
+
+
+
+DripPlugin = create_plugin_base(Drip)
+
+
+class RichText(plugins.RichText, DripPlugin):
+    pass
