@@ -3,8 +3,9 @@ import json
 
 from django import forms
 from django.contrib import admin
-
-from .models import Drip, SendDrip, QuerySetRule, DripSubject, Subscriber, RichText, Campaign, Subscription
+# from genericrelationview.admin import GenericAdminMixin
+# from admin_genericfk import GenericFKMixin
+from .models import Drip, SendDrip, QuerySetRule, DripSubject, Subscriber, RichText, Campaign, Subscription, Decision, Delay, Step
 from .handlers import configured_message_classes, message_class_for
 from django.contrib.auth import get_user_model
 
@@ -17,15 +18,71 @@ from content_editor.admin import (
 
 # from .models import Drip, RichText
 from mptt.admin import MPTTModelAdmin, DraggableMPTTAdmin
+from django.contrib.contenttypes.admin import GenericTabularInline
+
+
+class QuerySetRuleInline(admin.TabularInline):
+    model = QuerySetRule
+    #
+    # class Media:
+    #     css = {
+    #         'all': ('css/queryset_rules.css',)
+    #     }
+    #     js = (
+    #         'js/queryset_rules.js',
+    #     )
+
+    def _media(self):
+        return forms.Media(
+            css={
+                'all': ('css/queryset_rules.css',)
+            },
+            js=(
+                'js/queryset_rules.js',
+            )
+        )
+    media = property(_media)
+
+
+class StepAdmin(DraggableMPTTAdmin):
+    model = Step
+    generic_raw_id_fields = ['content_object']
+
+
+# class StepInline(GenericTabularInline):
+#     model = Step
+
+
+class DecisionAdmin(admin.ModelAdmin):
+    model = Decision
+    inlines = [
+        QuerySetRuleInline,
+    ]
+
+    def build_extra_context(self, extra_context):
+        from .utils import get_simple_fields
+        extra_context = extra_context or {}
+        # User = get_user_model()
+        extra_context['field_data'] = json.dumps(get_simple_fields(Subscription))
+        return extra_context
+
+    def add_view(self, request, form_url='', extra_context=None):
+        return super(DecisionAdmin, self).add_view(
+            request, extra_context=self.build_extra_context(extra_context))
+
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        return super(DecisionAdmin, self).change_view(
+            request, object_id, extra_context=self.build_extra_context(extra_context))
+
+
+admin.site.register(Step, StepAdmin)
+admin.site.register(Delay)
+admin.site.register(Decision, DecisionAdmin)
 
 
 class DripSplitSubjectInline(admin.TabularInline):
     model = DripSubject
     extra = 1
-
-
-class QuerySetRuleInline(admin.TabularInline):
-    model = QuerySetRule
 
 
 class DripForm(forms.ModelForm):
@@ -38,12 +95,18 @@ class DripForm(forms.ModelForm):
         exclude = []
 
 
+class DripInline(admin.TabularInline):
+    model = Drip
+    extra = 1
+
 
 class CampaignAdmin(admin.ModelAdmin):
-    pass
+    inlines = [DripInline]
+
 
 class SubscriberAdmin(admin.ModelAdmin):
     pass
+
 
 class SubscriptionAdmin(admin.ModelAdmin):
     pass

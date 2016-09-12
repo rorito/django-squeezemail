@@ -2,6 +2,9 @@ import sys
 
 from django.db import models
 from django.db.models.fields.related import ForeignObjectRel
+from django.db.models.fields.related import (
+    ForeignObjectRel, ManyToManyRel, ManyToOneRel, OneToOneRel, RelatedField
+)
 from django.core.mail import EmailMultiAlternatives, EmailMessage
 try:
     # Django >= 1.9
@@ -27,7 +30,7 @@ elif is_py3:
 def get_fields(Model,
                parent_field="",
                model_stack=None,
-               stack_limit=2,
+               stack_limit=3,
                excludes=['permissions', 'comment', 'content_type']):
     """
     Given a Model, return a list of lists of strings with important stuff:
@@ -96,22 +99,27 @@ def get_fields(Model,
         out_fields.append([full_field, field_name, Model, field.__class__])
 
         if not stop_recursion and \
-                isinstance(field, ForeignObjectRel):
-                # (isinstance(field, ForeignKey) or isinstance(field, OneToOneField) or \
-                # isinstance(field, RelatedObject) or isinstance(field, ManyToManyField)):
+                (isinstance(field, ForeignObjectRel) or isinstance(field, OneToOneRel) or isinstance(field, RelatedField) or isinstance(field, ManyToManyRel) or isinstance(field, ManyToOneRel)):
 
             # from pdb import set_trace
             # set_trace()
+
             if not isinstance(field, ForeignObjectRel):
                 RelModel = field.model
+                # print(RelModel)
             else:
                 RelModel = field.related_model
-            # print (RelModel)
-            # if isinstance(field, RelatedObject):
+                # print(RelModel)
+            # if isinstance(field, OneToOneRel):
+            #     print(field.related_model)
+                # print(field.related_model)
+            # print(RelModel)
+            # if isinstance(field, OneToOneRel):
             #     RelModel = field.model
-            #     #field_names.extend(get_fields(RelModel, full_field, True))
+            #     out_fields.extend(get_fields(RelModel, full_field, True))
             # else:
-            #     RelModel = field.related.parent_model
+            #     # RelModel = field.related.parent_model
+            #     RelModel = field.related_model.parent_model
 
             out_fields.extend(get_fields(RelModel, full_field, list(model_stack)))
 

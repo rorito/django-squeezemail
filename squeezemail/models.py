@@ -1,6 +1,7 @@
 #from datetime import datetime, timedelta
 
-
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth import get_user_model
 from django.db import models
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
@@ -9,7 +10,7 @@ from django.utils.functional import cached_property
 
 from django.utils import timezone
 
-from feincms.models import create_base_model
+# from feincms.models import create_base_model
 # just using this to parse, but totally insane package naming...
 # https://bitbucket.org/schinckel/django-timedelta-field/
 import timedelta as djangotimedelta
@@ -27,20 +28,112 @@ from content_editor.models import (
 )
 from feincms3 import plugins
 
+
 STATUS_CHOICES = (
     ('draft', 'Draft'),
     ('paused', 'Paused'),
     ('active', 'Active'),
 )
 
+METHOD_TYPES = (
+    ('filter', 'Filter'),
+    ('exclude', 'Exclude'),
+)
+
+LOOKUP_TYPES = (
+    ('exact', 'exactly'),
+    ('iexact', 'exactly (case insensitive)'),
+    ('contains', 'contains'),
+    ('icontains', 'contains (case insensitive)'),
+    ('regex', 'regex'),
+    ('iregex', 'contains (case insensitive)'),
+    ('gt', 'greater than'),
+    ('gte', 'greater than or equal to'),
+    ('lt', 'less than'),
+    ('lte', 'less than or equal to'),
+    ('startswith', 'starts with'),
+    ('endswith', 'starts with'),
+    ('istartswith', 'ends with (case insensitive)'),
+    ('iendswith', 'ends with (case insensitive)'),
+)
+
+STEP_TYPES = (
+    ('path', 'Path'),
+    ('action', 'Action'),
+    ('decision', 'Decision'),
+)
+
+
 # class Funnel(models.Model):
 #     pass
-#
-#
-# class Step(models.Model):
-#     parent = TreeForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children', db_index=True)
 
 
+limit = models.Q(app_label='squeezemail', model='decision') | models.Q(app_label='squeezemail', model='delay')
+
+
+class Step(MPTTModel):
+    parent = TreeForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children', db_index=True)
+    description = models.CharField(max_length=75, null=True, blank=True)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, limit_choices_to=limit)
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey('content_type', 'object_id')
+
+    def __str__(self):
+        return "%s" % self.description
+
+    def run(self):
+        # get all subscriptions on this step who are active
+        qs = self.subscriptions.filter(is_active=True)
+        # get what this step needs to do (e.g. decision)
+        t = self.content_object
+        ret = t.run(self, qs)
+        return ret
+
+
+# StepPlugin = create_plugin_base(Step)
+
+
+class Delay(models.Model):
+    delay = models.CharField(default='1 days', max_length=255)
+
+    def __str__(self):
+        return "Delay: %s" % self.delay
+
+    def run(self, step, qs):
+        next_step = step.get_children()[0]
+        #get all subscriptions that landed on the step over 'delay' days ago, then assign them to the next step
+        for subscription in qs:
+            subscription.step_id = next_step.id
+        return qs
+
+
+class Decision(models.Model):
+    description = models.CharField(max_length=75, null=True, blank=True)
+    on_true = models.ForeignKey('squeezemail.Step', null=True, blank=True, related_name='decision_on_true')
+    on_false = models.ForeignKey('squeezemail.Step', null=True, blank=True, related_name='decision_on_false')
+    # date = models.DateTimeField(auto_now_add=True)
+    # lastchanged = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return "Decision: %s" % self.description
+
+    def run(self, step, qs):
+        qs_rules = self.queryset_rules.all()
+        qs_filtered = qs
+        for rule in qs_rules:
+            qs_filtered = rule.apply(qs_filtered)
+
+        #TODO: qs_excluded will be assigned to on_false step
+
+        for subscription in qs_filtered:
+            subscription.step_id = self.on_true_id
+            subscription.save()
+
+        return qs
+
+
+# class DecisionTrue(models.Model):
+#     pass
 
 
 class DripSubject(models.Model):
@@ -190,32 +283,11 @@ class Unsubscribe(models.Model):
     date = models.DateTimeField(auto_now_add=True)
 
 
-METHOD_TYPES = (
-    ('filter', 'Filter'),
-    ('exclude', 'Exclude'),
-)
-
-LOOKUP_TYPES = (
-    ('exact', 'exactly'),
-    ('iexact', 'exactly (case insensitive)'),
-    ('contains', 'contains'),
-    ('icontains', 'contains (case insensitive)'),
-    ('regex', 'regex'),
-    ('iregex', 'contains (case insensitive)'),
-    ('gt', 'greater than'),
-    ('gte', 'greater than or equal to'),
-    ('lt', 'less than'),
-    ('lte', 'less than or equal to'),
-    ('startswith', 'starts with'),
-    ('endswith', 'starts with'),
-    ('istartswith', 'ends with (case insensitive)'),
-    ('iendswith', 'ends with (case insensitive)'),
-)
-
-
 class QuerySetRule(models.Model):
     date = models.DateTimeField(auto_now_add=True)
     lastchanged = models.DateTimeField(auto_now=True)
+
+    decision = models.ForeignKey('squeezemail.Decision', related_name='queryset_rules')
 
     drip = models.ForeignKey('squeezemail.Drip', related_name='queryset_rules')
 
@@ -347,10 +419,10 @@ subscriber_manager = class_for(SUBSCRIBER_MANAGER)()
 
 
 class Campaign(models.Model):
-    status = models.TextField(choices=STATUS_CHOICES)
-    name = models.TextField()
-    from_name = models.TextField()
-    from_email = models.TextField()
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES)
+    name = models.CharField(max_length=150)
+    from_name = models.CharField(max_length=100)
+    from_email = models.CharField(max_length=100)
     # send_on_days
     start_now = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
@@ -407,13 +479,14 @@ class Subscriber(models.Model):
 
 
 class Subscription(models.Model):
-    campaign = models.ForeignKey('squeezemail.Campaign', related_name="subscribers")
+    campaign = models.ForeignKey('squeezemail.Campaign', related_name="subscriptions")
     subscriber = models.ForeignKey('squeezemail.Subscriber', related_name="subscriptions")
     subscribe_date = models.DateTimeField(verbose_name="Subscribe Date", default=timezone.now)
-    status = models.TextField(choices=STATUS_CHOICES)
+    is_active = models.BooleanField(verbose_name="Active", default=True)
     is_complete = models.BooleanField(default=False)
-    lap = models.IntegerField(default=1)
+    # lap = models.IntegerField(default=1)
     last_send_drip = models.ForeignKey('squeezemail.SendDrip')
+    step = models.ForeignKey('squeezemail.Step', related_name="subscriptions")
 
 
 # class Subscriber(models.Model):
