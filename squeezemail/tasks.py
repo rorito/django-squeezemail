@@ -8,7 +8,7 @@ from django.core.mail import get_connection
 from django.core.cache import cache
 from django.utils import timezone
 
-from google_analytics_reporter.tracking import Event
+# from google_analytics_reporter.tracking import Event
 
 from squeezemail import SQUEEZE_PREFIX
 from .models import SendDrip, Drip, Subscriber, Open, Click, DripSubject
@@ -174,18 +174,18 @@ def process_open(**kwargs):
                 # utm_content=split ('A' or 'B')
                 # target=target # don't need this for opens, but would be useful in clicks
                 # event = 'open'?
-                Event(user_id=user_id, client_id=ga_cid)\
-                    .debug(
-                    category='email',
-                    action='open',
-                    document_path='/email/',
-                    document_title=subject,
-                    campaign_id=drip_id,
-                    campaign_name=sentdrip.drip.name,
-                    campaign_source='',
-                    campaign_medium='email',
-                    campaign_content=split
-                )
+                # Event(user_id=user_id, client_id=ga_cid)\
+                #     .debug(
+                #     category='email',
+                #     action='open',
+                #     document_path='/email/',
+                #     document_title=subject,
+                #     campaign_id=drip_id,
+                #     campaign_name=sentdrip.drip.name,
+                #     campaign_source='',
+                #     campaign_medium='email',
+                #     campaign_content=split
+                # )
         else:
             logger.info("user_token didn't match user id token")
 
