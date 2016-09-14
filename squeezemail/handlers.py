@@ -113,7 +113,13 @@ class DripMessage(object):
     @property
     def body(self):
         if not self._body:
-            self._body = render_to_string('squeezemail/body.html', self.context)
+            # TODO accessing a protected member, is there a getter method?
+            template = self.drip._feincms_templates.get(self.drip.template_key)
+
+            if template:
+                self._body = render_to_string(template.path, self.context)
+            else:
+                self._body = render_to_string('squeezemail/body.html', self.context)
         return self._body
 
     @property
