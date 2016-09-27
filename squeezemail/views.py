@@ -18,7 +18,7 @@ from .tasks import process_click, process_open
 
 def drip_open(request):
     """
-    Mainly used by an img pixel embeded in every email.
+    Used by an img pixel embeded in every email.
 
     Returns a 204 No Content http response to save bandwidth.
     Thanks https://github.com/SpokesmanReview/Pixel-Tracker/blob/master/pixel_tracker/views.py

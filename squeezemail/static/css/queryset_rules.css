@@ -1,0 +1,13 @@
+ul.field-name-selector { overflow:auto; margin:0; padding:0;}
+ul.field-name-selector li {
+    list-style:none;
+    float:left;
+    margin:0 4px 4px 0;
+    padding:2px 4px;
+    background:#f7f7f7;
+    border:1px #ccc solid;
+    cursor:pointer;
+}
+ul.field-name-selector li:hover {
+    background:#eee;
+}
