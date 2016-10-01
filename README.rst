@@ -98,6 +98,8 @@ How do I make a Funnel?
 =====================
 Django's admin isn't the most elegant UI for building this, but it works well enough to get by for now. You may be a little overwhelmed with all the models you see in the admin, but you start at 'Funnel'. All subscribers will be added to a funnel, which will start them on the first step of the funnel. I'll walk you through making a quick cold opt in funnel, and it should give you a good idea of how it works.
 
+**(Note: make sure your Celery worker is running)**
+
 Create a **Funnel**.
 
 Name your funnel **'Cold Optin'**, and add an **Entry step** to it. This'll be our root step.
@@ -118,18 +120,25 @@ We now have a funnel that'll send a welcome email to all subscribers on the welc
 
 Make the parent our previous **Cold Welcome Email** step, and select **'delay'** as our content type, then **add a new delay object with the magnifying glass**.
 
-When creating a new delay, it defaults to **'1 days'**. That's good, save it, then save your new step.
+When creating a new delay, it defaults to a **1 day delay**. That's good, **save it**, then **save your new step**.
 
 You should see a (rough) tree of your steps starting to take shape.
 
-Add a new subscriber with a subscription.
+**Add a new subscriber to the funnel**. If you use an email of an existing user, it'll tie the Subscriber and User together, otherwise it'll have an empty User field.
 ::
     >>> from squeezemail.models import Funnel
     >>> funnel = Funnel.objects.get(name='Cold Optin')
-    >>> funnel.create_subscription('your@email.com') # can also be a Subscriber instance, but this will create a subscriber if it doesn't exist
+    >>> funnel.create_subscription('your@email.com') # Can also be a Subscriber instance
 
+If you look at your Subscribers, you'll see a new Subscriber that's on the first step of the funnel.
 
+Your funnel won't do anything until you run the steps. So run:
+::
+    >>> ./manage.py run_steps
 
+Once the drip sends to the subscriber, they're moved to the next step. Check your subscriber, and you should see them moved to the next step (the delay step we made earlier), where they'll sit for 1 day before continuing to the next step.
+
+I hope that gives you a pretty good idea of how it works. Once you play with the different step types, I think you'll really see the cool things you can do with it.
 
 Special Thanks
 ==============

@@ -26,7 +26,7 @@ import timedelta as djangotimedelta
 from squeezemail import SQUEEZE_DRIP_HANDLER
 from squeezemail import SQUEEZE_PREFIX
 from squeezemail import SQUEEZE_SUBSCRIBER_MANAGER
-from squeezemail.utils import class_for
+from squeezemail.utils import class_for, get_token_for_email
 
 # from mptt.models import MPTTModel, TreeForeignKey
 from content_editor.models import (
@@ -572,79 +572,79 @@ class QuerySetRule(models.Model):
         return qs.filter(**kwargs)
 
 
-class Campaign(models.Model):
-    name = models.CharField(max_length=150)
-    from_name = models.CharField(max_length=100, blank=True, null=True)
-    from_email = models.CharField(max_length=100, blank=True, null=True)
-    # send_on_days = models.IntegerField(max_length=7, default=1111111)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-    drips = models.ManyToManyField('Drip', through='CampaignDrip', related_name='campaigns')
-
-    def __str__(self):
-        return self.name
-
-    def drip_count(self):
-        # How many drips/emails this campaign has
-        return self.drips.count()
-
-    def active_subscriptions_count(self):
-        return self.subscriptions.filter(is_active=True, is_complete=False)
-
-    def unsubscribed_subscriber_count(self):
-        return self.subscriptions.filter(is_active=False, is_complete=False)
-
-    @cached_property
-    def open_rate(self):
-        drip_id_list = self.drips.filter(enabled=True).values_list('id', flat=True)
-        total_sent = SendDrip.objects.filter(drip_id__in=drip_id_list, sent=True).count()
-        total_opened = Open.objects.filter(drip_id__in=drip_id_list).count()
-        return (total_opened / total_sent) * 100
-
-    @cached_property
-    def click_through_rate(self):
-        drip_id_list = self.drips.filter(enabled=True).values_list('id', flat=True)
-        total_sent = SendDrip.objects.filter(drip_id__in=drip_id_list, sent=True).count()
-        total_clicked = Click.objects.filter(drip_id__in=drip_id_list).count()
-        return (total_clicked / total_sent) * 100
-
-    @cached_property
-    def click_to_open_rate(self):
-        """
-        Click to open rate is the percentage of recipients who opened
-        the email message and also clicked on any link in the email message.
-        """
-        drip_id_list = self.drips.filter(enabled=True).values_list('id', flat=True)
-        total_opened = Open.objects.filter(drip_id__in=drip_id_list).count()
-        total_clicked = Click.objects.filter(drip_id__in=drip_id_list).count()
-        return (self.click_through_rate / self.open_rate) * 100
-
-    def step_run(self, step, subscribers):
-        #TODO: Implement this.
-        # We want only the subscribers who want to receive this campaign and are on the calling step.
-        subscriptions = self.subscriptions.filter(is_complete=False, is_active=True)
-        subscribers = subscribers.filter()
-        subscribers_id_list = subscribers.values_list('id', flat=True)
-        # subscriptions = self.subscriptions.filter(is_complete=False, is_active=True, subscriber_id__in=subscribers_id_list)
-
-        # for drip in self.drips.filter(enabled=True):
-        #     subscribers =
-        #     drip.handler(queryset=).campaign_run()
-
-        return
-
-
-class CampaignDrip(models.Model):
-    campaign = models.ForeignKey('squeezemail.Campaign', related_name='campaign_drips')
-    drip = models.ForeignKey('squeezemail.Drip', related_name='campaign_drips')
-    delay = models.CharField(default='1 days', max_length=25)
-    order = models.IntegerField(default=1)
-
-    def __str__(self):
-        return "%s: %s delayed %s" % (self.campaign.name, self.drip.name, str(self.delay))
-
-    class Meta:
-        ordering = ('order', 'id')
+# class Campaign(models.Model):
+#     name = models.CharField(max_length=150)
+#     from_name = models.CharField(max_length=100, blank=True, null=True)
+#     from_email = models.CharField(max_length=100, blank=True, null=True)
+#     # send_on_days = models.IntegerField(max_length=7, default=1111111)
+#     created = models.DateTimeField(auto_now_add=True)
+#     updated = models.DateTimeField(auto_now=True)
+#     drips = models.ManyToManyField('Drip', through='CampaignDrip', related_name='campaigns')
+#
+#     def __str__(self):
+#         return self.name
+#
+#     def drip_count(self):
+#         # How many drips/emails this campaign has
+#         return self.drips.count()
+#
+#     def active_subscriptions_count(self):
+#         return self.subscriptions.filter(is_active=True, is_complete=False)
+#
+#     def unsubscribed_subscriber_count(self):
+#         return self.subscriptions.filter(is_active=False, is_complete=False)
+#
+#     @cached_property
+#     def open_rate(self):
+#         drip_id_list = self.drips.filter(enabled=True).values_list('id', flat=True)
+#         total_sent = SendDrip.objects.filter(drip_id__in=drip_id_list, sent=True).count()
+#         total_opened = Open.objects.filter(drip_id__in=drip_id_list).count()
+#         return (total_opened / total_sent) * 100
+#
+#     @cached_property
+#     def click_through_rate(self):
+#         drip_id_list = self.drips.filter(enabled=True).values_list('id', flat=True)
+#         total_sent = SendDrip.objects.filter(drip_id__in=drip_id_list, sent=True).count()
+#         total_clicked = Click.objects.filter(drip_id__in=drip_id_list).count()
+#         return (total_clicked / total_sent) * 100
+#
+#     @cached_property
+#     def click_to_open_rate(self):
+#         """
+#         Click to open rate is the percentage of recipients who opened
+#         the email message and also clicked on any link in the email message.
+#         """
+#         drip_id_list = self.drips.filter(enabled=True).values_list('id', flat=True)
+#         total_opened = Open.objects.filter(drip_id__in=drip_id_list).count()
+#         total_clicked = Click.objects.filter(drip_id__in=drip_id_list).count()
+#         return (self.click_through_rate / self.open_rate) * 100
+#
+#     def step_run(self, step, subscribers):
+#         #TODO: Implement this.
+#         # We want only the subscribers who want to receive this campaign and are on the calling step.
+#         subscriptions = self.subscriptions.filter(is_complete=False, is_active=True)
+#         subscribers = subscribers.filter()
+#         subscribers_id_list = subscribers.values_list('id', flat=True)
+#         # subscriptions = self.subscriptions.filter(is_complete=False, is_active=True, subscriber_id__in=subscribers_id_list)
+#
+#         # for drip in self.drips.filter(enabled=True):
+#         #     subscribers =
+#         #     drip.handler(queryset=).campaign_run()
+#
+#         return
+#
+#
+# class CampaignDrip(models.Model):
+#     campaign = models.ForeignKey('squeezemail.Campaign', related_name='campaign_drips')
+#     drip = models.ForeignKey('squeezemail.Drip', related_name='campaign_drips')
+#     delay = models.CharField(default='1 days', max_length=25)
+#     order = models.IntegerField(default=1)
+#
+#     def __str__(self):
+#         return "%s: %s delayed %s" % (self.campaign.name, self.drip.name, str(self.delay))
+#
+#     class Meta:
+#         ordering = ('order', 'id')
 
 
 class FunnelManager(models.Manager):
@@ -679,7 +679,8 @@ class SubscriberManager(models.Manager):
         return self.filter(is_active=True)
 
 
-subscriber_manager = class_for(SQUEEZE_SUBSCRIBER_MANAGER)()
+# subscriber_manager = class_for(SQUEEZE_SUBSCRIBER_MANAGER)()
+subscriber_manager = SubscriberManager()
 
 
 class Subscriber(models.Model):
@@ -714,6 +715,23 @@ class Subscriber(models.Model):
     def opened_email(self, drip):
         return self.send_drips.get(id=drip.id).opened
 
+    def get_token(self):
+        """
+        Gets a key/token to pass to email footer's unsubscribe link, so only the owner of the email can unsubscribe.
+        Also used to allow database writing for clicks/opens/etc.
+        """
+        return get_token_for_email(self.email)
+
+    @cached_property
+    def token(self):
+        return self.get_token()
+
+    def match_token(self, token):
+        if str(token) == str(self.get_token()):
+            return True
+        else:
+            return False
+
 
 class FunnelSubscription(models.Model):
     """
@@ -730,13 +748,13 @@ class FunnelSubscription(models.Model):
         unique_together = ('funnel', 'subscriber')
 
 
-class CampaignSubscription(models.Model):
-    campaign = models.ForeignKey('squeezemail.Campaign', related_name="subscriptions")
-    subscriber = models.ForeignKey('squeezemail.Subscriber', related_name="campaign_subscriptions")
-    subscribe_date = models.DateTimeField(verbose_name="Subscribe Date", default=timezone.now)
-    is_active = models.BooleanField(verbose_name="Active", default=True)
-    is_complete = models.BooleanField(default=False)
-    last_send_drip = models.ForeignKey('squeezemail.SendDrip', null=True, blank=True)
+# class CampaignSubscription(models.Model):
+#     campaign = models.ForeignKey('squeezemail.Campaign', related_name="subscriptions")
+#     subscriber = models.ForeignKey('squeezemail.Subscriber', related_name="campaign_subscriptions")
+#     subscribe_date = models.DateTimeField(verbose_name="Subscribe Date", default=timezone.now)
+#     is_active = models.BooleanField(verbose_name="Active", default=True)
+#     is_complete = models.BooleanField(default=False)
+#     last_send_drip = models.ForeignKey('squeezemail.SendDrip', null=True, blank=True)
 
 
 DripPlugin = create_plugin_base(Drip)

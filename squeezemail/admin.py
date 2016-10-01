@@ -9,8 +9,8 @@ from django.contrib.contenttypes.admin import GenericTabularInline
 from feincms3.admin import TreeAdmin
 from feincms3.plugins import AlwaysChangedModelForm
 
-from .models import Drip, SendDrip, QuerySetRule, DripSubject, Subscriber, CampaignSubscription, Decision,\
-    Delay, Step, Campaign, CampaignDrip, Modify, Funnel, Image, RichText
+from .models import Drip, SendDrip, QuerySetRule, DripSubject, Subscriber, Decision,\
+    Delay, Step, Modify, Funnel, Image, RichText
 from .handlers import configured_message_classes, message_class_for
 
 from content_editor.admin import (
@@ -80,12 +80,12 @@ class DripForm(forms.ModelForm):
         exclude = []
 
 
-class CampaignDripInline(admin.TabularInline):
-    model = CampaignDrip
+# class CampaignDripInline(admin.TabularInline):
+#     model = CampaignDrip
 
 
-class CampaignAdmin(admin.ModelAdmin):
-    inlines = [CampaignDripInline]
+# class CampaignAdmin(admin.ModelAdmin):
+#     inlines = [CampaignDripInline]
 
 
 class SubscriberAdmin(admin.ModelAdmin):
@@ -220,8 +220,8 @@ class DripAdmin(ContentEditor):
         )
         return my_urls + urls
 
-admin.site.register(Campaign, CampaignAdmin)
-admin.site.register(CampaignSubscription)
+# admin.site.register(Campaign, CampaignAdmin)
+# admin.site.register(CampaignSubscription)
 admin.site.register(Drip, DripAdmin)
 admin.site.register(Subscriber, SubscriberAdmin)
 

@@ -227,6 +227,6 @@ def class_for(path):
     return klass
 
 
-def get_token_for_user(user):
-    m = hashlib.md5(user.email.encode('utf-8') + settings.SECRET_KEY.encode('utf-8')).hexdigest().encode('utf-8')
+def get_token_for_email(email):
+    m = hashlib.md5(email.encode('utf-8') + settings.SECRET_KEY.encode('utf-8')).hexdigest().encode('utf-8')
     return m

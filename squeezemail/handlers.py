@@ -28,7 +28,7 @@ except ImportError:
     from django.utils.importlib import import_module
 from content_editor.contents import contents_for_item
 from content_editor.renderer import PluginRenderer
-from .utils import get_token_for_user
+from .utils import get_token_for_email
 from . import SQUEEZE_CELERY_EMAIL_CHUNK_SIZE, SQUEEZE_DEFAULT_HTTP_PROTOCOL
 from .tasks import send_drip
 from .models import SendDrip, Subscriber, RichText, Image
@@ -66,7 +66,7 @@ class DripMessage(object):
         self._body = None
         self._plain = None
         self._message = None
-        self._user_token = None
+        self._token = None
 
     @cached_property
     def from_email(self):
@@ -92,12 +92,12 @@ class DripMessage(object):
     @property
     def context(self):
         if not self._context:
-            user_token = self.get_user_token
+            token = self.get_email_token()
             context = Context({
                 'subscriber': self.subscriber,
                 'user': self.subscriber.user,
                 'drip': self.drip,
-                'user_token': user_token,
+                'token': token,
                 })
             context['content'] = mark_safe(self.replace_urls(Template(self.render_body()).render(context)))
             self._context = context
@@ -195,16 +195,15 @@ class DripMessage(object):
         params = {
             'sq_subscriber_id': self.subscriber.id,
             'sq_drip_id': self.drip.id,
-            'sq_user_token': self.get_user_token,
+            'sq_token': self.get_email_token(),
             'sq_subject_id': self.subject_model.id
         }
         return params
 
-    @property
-    def get_user_token(self):
-        if not self._user_token:
-            self._user_token = str(get_token_for_user(self.subscriber.user))
-        return self._user_token
+    def get_email_token(self):
+        if not self._token:
+            self._token = str(get_token_for_email(self.subscriber.email))
+        return self._token
 
 
 class HandleDrip(object):
@@ -235,13 +234,10 @@ class HandleDrip(object):
         return
 
     def step_run(self):
-        self.create_unsent_drips()
         next_step = self.step.get_next_step()
-        if next_step:
-            results = self.create_tasks_for_unsent_drips(next_step_id=next_step.id)
-        else:
-            results = self.create_tasks_for_unsent_drips()
-        return results
+        self.prune()
+        count = self.send(next_step=next_step)
+        return count
 
     def campaign_run(self):
         return
@@ -251,10 +247,52 @@ class HandleDrip(object):
         results = self.create_tasks_for_unsent_drips()
         return results
 
+    def prune(self):
+        """
+        Do an exclude for all Users who have a SendDrip already.
+        """
+        target_subscriber_ids = self.get_queryset().values_list('id', flat=True)
+        exclude_subscriber_ids = SendDrip.objects.filter(
+            drip_id=self.drip_model.id,
+            subscriber_id__in=target_subscriber_ids
+        ).values_list('subscriber_id', flat=True)
+        self._queryset = self.get_queryset().exclude(id__in=exclude_subscriber_ids)
+        return
+
+    def send(self, next_step=None):
+        """
+        Send the message to each subscriber on the queryset.
+        Create SendDrip for each subscriber that gets a message.
+        Returns count of created SendDrips.
+        """
+
+        if not self.from_email:
+            self.from_email = getattr(settings, 'DRIP_FROM_EMAIL', settings.DEFAULT_FROM_EMAIL)
+        MessageClass = message_class_for(self.drip_model.message_class)
+
+        count = 0
+        for subscriber in self.get_queryset():
+            message_instance = MessageClass(self.drip_model, subscriber)
+            try:
+                # Make sure they haven't received this drip just before sending.
+                SendDrip.objects.get(drip_id=self.drip_model.id, subscriber_id=subscriber.id, sent=True)
+                continue
+            except SendDrip.DoesNotExist:
+                result = message_instance.message.send()
+                if result:
+                    SendDrip.objects.create(drip=self.drip_model, subscriber=subscriber, sent=True)
+                    if next_step:
+                        subscriber.move_to_step(next_step.id)
+                    count += 1
+            except Exception as e:
+                logging.error("Failed to send drip %s to subscriber %s: %s" % (str(self.drip_model.id), str(subscriber), e))
+
+        return count
+
     def create_unsent_drips(self):
         """
-        Create SendDrip objects for every subscriber_id in the queryset, which is how we avoid sending the same drip to
-        a subscriber more than once.
+        Create an unsent SendDrip objects for every subscriber_id in the queryset.
+        Used for huge sendouts like broadcasts.
         """
         drip_id = self.drip_model.id
         subscriber_id_list = self.get_queryset().values_list('id', flat=True)

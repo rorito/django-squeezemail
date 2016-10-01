@@ -12,33 +12,8 @@ from google_analytics_reporter.tracking import Event
 
 from squeezemail import SQUEEZE_PREFIX
 from .models import SendDrip, Drip, Subscriber, Open, Click, DripSubject
-from .utils import get_token_for_user
+from .utils import get_token_for_email
 
-
-# from squeezemail.utils import email_to_dict, dict_to_email
-# from .models import Drip
-#from utils.celery.tasks import lock_task
-#from subscriptions.drops import Drop
-
-
-# @task()
-# def send_drop(user, drip_name, name):
-#     """
-#     Sends a single drip to a single user.
-#     Mostly used to send a welcome email after a user subscribes to the newsletter.
-#
-#     The 'name' is required for some reason. The only requirement is that it exists, it seems.
-#     It has nothing to do with getting any object.
-#     """
-#     welcome_email = Drip.objects.get(name=drip_name) #get drip
-#     return Drop(drip_model=welcome_email, user=user, name=name).run() #prunes and sends to user
-
-
-#@lock_task(60*10)
-# @shared_task()
-# def send_drips():
-#     for drip in Drip.objects.filter(enabled=True):
-#         drip.drip.run()
 
 LOCK_EXPIRE = (60 * 60) * 24  # Lock expires in 24 hours if it never gets unlocked
 
@@ -130,24 +105,23 @@ def send_drip(self, subscriber_id_list, backend_kwargs=None, **kwargs):
 
 @shared_task()
 def process_open(**kwargs):
-    #TODO: pass subscriber_id through instead of user_id
     url_kwargs = kwargs
 
-    user_token = url_kwargs.get('sq_user_token', None)
-    user_id = url_kwargs.get('sq_user_id', None)
+    token = url_kwargs.get('sq_token', None)
+    subscriber_id = url_kwargs.get('sq_subscriber_id', None)
     drip_id = url_kwargs.get('sq_drip_id', None)
     ga_cid = url_kwargs.get('sq_cid', None)
 
     subject_id = url_kwargs.get('sq_subject_id', None)
     split = url_kwargs.get('sq_split', None)
 
-    if user_token:  # if a user token is passed in and matched, we're allowed to do database writing
-        user = get_user_model().objects.get(pk=user_id)
-        token_matched = user.match_token(user_token)
+    if token:  # if a user token is passed in and matched, we're allowed to do database writing
+        subscriber = Subscriber.objects.get(pk=subscriber_id)
+        token_matched = subscriber.match_token(token)
 
         if token_matched:
-            logger.debug("Successfully matched token to user %r.", user.email)
-            sentdrip = SendDrip.objects.get(drip_id=drip_id, subscriber_id=user_id)
+            logger.debug("Successfully matched token to user %r.", subscriber.email)
+            sentdrip = SendDrip.objects.get(drip_id=drip_id, subscriber_id=subscriber_id)
             if not sentdrip.opened:
                 Open.objects.create(senddrip=sentdrip)
                 logger.debug("SendDrip.open created")
@@ -158,10 +132,10 @@ def process_open(**kwargs):
                 # utm_campaign=sentdrip.drip.name
                 # utm_medium=email
                 # utm_content=split ('A' or 'B')
-                # target=target # don't need this for opens, but would be useful in clicks
+                # target=target # don't need this for opens, but could be useful in clicks
                 # event = 'open'?
-                #TODO: switch from .debug to .send
-                Event(user_id=user_id, client_id=ga_cid)\
+                #TODO: switch from .debug to .send to actually send to google
+                Event(user_id=subscriber.user_id, client_id=ga_cid)\
                     .debug(
                     category='email',
                     action='open',
@@ -174,9 +148,9 @@ def process_open(**kwargs):
                     campaign_content=split
                 )
         else:
-            logger.info("user_token didn't match user id token")
+            logger.info("subscriber token didn't match")
 
-    logger.info("Email open processed for drip %r and user %r", drip_id, user_id)
+    logger.info("Email open processed for drip %r and subscriber %r", drip_id, subscriber_id)
     return
 
 
@@ -193,7 +167,7 @@ def process_click(**kwargs):
 
     if user_token:  # if a user token is passed in and matched, we're allowed to do database writing
         user = get_user_model().objects.get(pk=user_id)
-        token_matched = str(user_token) == str(get_token_for_user(user))
+        token_matched = str(user_token) == str(get_token_for_email(user))
 
         if token_matched:
             logger.debug("Successfully matched token to user %r.", user.email)
@@ -206,13 +180,6 @@ def process_click(**kwargs):
             if not sentdrip.clicked:
                 Click.objects.create(senddrip=sentdrip)
                 logger.debug('Click created')
-
-            # if movetosequence:
-            #     try:
-            #         subscriber = user.subscriptions.get(sequence__drips__id=drip_id)
-            #         subscriber.move_to_sequence(movetosequence)
-            #     except Subscriber.DoesNotExist as e:
-            #         logger.warning("Subscriber for sequence__drips__id=%i does not exist. (%r)", drip_id, e)
 
             if tag:
                 #TODO: tag 'em
