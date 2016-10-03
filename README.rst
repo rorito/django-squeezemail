@@ -64,9 +64,31 @@ If you don't, follow this first: http://docs.celeryproject.org/en/latest/django/
 
 2. Add to settings.py:
 ::
-    DEFAULT_HTTP_PROTOCOL = 'http'
+    SQUEEZE_DEFAULT_HTTP_PROTOCOL = 'http'
 We rebuild all the links in each email to track clicks, so we need to know which protocol to use. If your site is http, set to http, if it's ssl, set to https.
 
+::
+    CKEDITOR_JQUERY_URL = '//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js'
+    CKEDITOR_CONFIGS = {
+        'default': {
+            'toolbar': 'Custom',
+            'format_tags': 'h1;h2;h3;p;pre',
+            'toolbar_Custom': [
+                ['Format', 'RemoveFormat'],
+                ['Bold', 'Italic', 'Strike', '-',
+                 'NumberedList', 'BulletedList', '-',
+                 'Anchor', 'Link', 'Unlink', '-',
+                 'Source'],
+            ],
+        },
+    }
+
+    # Settings for feincms3.plugins.richtext.RichText
+    CKEDITOR_CONFIGS['richtext-plugin'] = CKEDITOR_CONFIGS['default']
+
+    #Tracking
+    GOOGLE_ANALYTICS_ID = 'UA-XXXXXXXXX-1' # Your google analytics id
+    DEFAULT_TRACKING_DOMAIN = 'yourdomain.com'
 
 
 3. Add squeezemail's url to your project's urls.py.
@@ -97,8 +119,6 @@ You should see it go through all of the active steps you have, moving subscriber
 How do I make a Funnel?
 =====================
 Django's admin isn't the most elegant UI for building this, but it works well enough to get by for now. You may be a little overwhelmed with all the models you see in the admin, but you start at 'Funnel'. All subscribers will be added to a funnel, which will start them on the first step of the funnel. I'll walk you through making a quick cold opt in funnel, and it should give you a good idea of how it works.
-
-**(Note: make sure your Celery worker is running)**
 
 Create a **Funnel**.
 

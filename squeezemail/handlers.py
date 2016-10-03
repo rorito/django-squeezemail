@@ -19,7 +19,7 @@ from django.template import Context, Template
 from django.template.loader import render_to_string
 from django.utils.functional import cached_property
 from django.core.mail import EmailMultiAlternatives
-from django.utils.html import strip_tags
+# from django.utils.html import strip_tags
 from django.contrib.sites.models import Site
 try:
     # Django >= 1.9
@@ -29,7 +29,7 @@ except ImportError:
 from content_editor.contents import contents_for_item
 from content_editor.renderer import PluginRenderer
 from .utils import get_token_for_email
-from . import SQUEEZE_CELERY_EMAIL_CHUNK_SIZE, SQUEEZE_DEFAULT_HTTP_PROTOCOL
+from . import SQUEEZE_CELERY_EMAIL_CHUNK_SIZE, SQUEEZE_DEFAULT_HTTP_PROTOCOL, SQUEEZE_DEFAULT_FROM_EMAIL
 from .tasks import send_drip
 from .models import SendDrip, Subscriber, RichText, Image
 from .utils import chunked
@@ -38,7 +38,6 @@ from .utils import chunked
 logger = logging.getLogger(__name__)
 
 HREF_RE = re.compile(r'href\="((\{\{[^}]+\}\}|[^"><])+)"')
-
 
 
 def configured_message_classes():
@@ -75,7 +74,7 @@ class DripMessage(object):
         elif self.drip.from_email and not self.drip.from_email_name:
             from_ = self.drip.from_email
         else:
-            from_ = getattr(settings, 'DRIP_FROM_EMAIL', settings.DEFAULT_FROM_EMAIL)
+            from_ = SQUEEZE_DEFAULT_FROM_EMAIL
         return from_
 
     @property
@@ -98,6 +97,7 @@ class DripMessage(object):
                 'user': self.subscriber.user,
                 'drip': self.drip,
                 'token': token,
+                'tracking_pixel': self.tracking_pixel
                 })
             context['content'] = mark_safe(self.replace_urls(Template(self.render_body()).render(context)))
             self._context = context
@@ -116,7 +116,7 @@ class DripMessage(object):
     @property
     def body(self):
         if not self._body:
-            self._body = render_to_string('squeezemail/body.html', self.context)
+            self._body = render_to_string('squeezemail/email/body.html', self.context)
         return self._body
 
     @property
@@ -124,7 +124,7 @@ class DripMessage(object):
         if not self._plain:
             h = html2text.HTML2Text()
             h.ignore_images = True
-            self._plain = h.handle(self.body)
+            self._plain = render_to_string('squeezemail/email/plain.txt', self.context)
         return self._plain
 
     @property
@@ -157,7 +157,7 @@ class DripMessage(object):
         When someone goes to the above new_url link, it'll hit our function at /link/ which re-creates the original url, but also passes user_id, drip_id, etc
         with it in case it's needed and redirects to the target url with the params. This is also where we throw some stats at Google Analytics.
         """
-        site_domain = Site.objects.get_current().domain
+        site_domain = self.current_domain
         parsed_url = urlparse(raw_url)
 
         if parsed_url.netloc is '':
@@ -171,8 +171,8 @@ class DripMessage(object):
         # where the user will be redirected to after clicking this link
         url_params['sq_target'] = urlunparse(target_url)
 
-        # add user_id and drip_id to the params
-        url_params.update(self.extra_url_params())
+        # add subscriber_id, drip_id, token, subject_id to the params
+        url_params.update(self.extra_url_params)
 
         parsed_url_list = list(parsed_url)
         parsed_url_list[4] = urlencode(url_params)
@@ -186,9 +186,9 @@ class DripMessage(object):
 
         #rebuild new url
         new_url_with_extra_params = urlunparse(new_url)
-
         return new_url_with_extra_params
 
+    @cached_property
     def extra_url_params(self):
         # These params will be inserted in every link in the content of the email.
         # Useful for tracking clicks and knowing who clicked it on which drip
@@ -205,11 +205,27 @@ class DripMessage(object):
             self._token = str(get_token_for_email(self.subscriber.email))
         return self._token
 
+    @cached_property
+    def current_domain(self):
+        return Site.objects.get_current().domain
+
+    @cached_property
+    def tracking_pixel(self):
+        p = urlparse('')._replace(
+            scheme=SQUEEZE_DEFAULT_HTTP_PROTOCOL,
+            netloc=self.current_domain,
+            path=reverse('squeezemail:tracking_pixel'),
+            query=urlencode(self.extra_url_params)
+        )
+        return mark_safe(urlunparse(p))
+
 
 class HandleDrip(object):
     """
     A base object for defining a Drip.
-    You can extend this manually and set it as your default drip handler class.
+    You can extend this manually and set it as your default drip
+    handler class by setting SQUEEZE_DRIP_HANDLER in your settings.
+    (e.g. SQUEEZE_DRIP_HANDLER = 'myapp.handlers.MyHandleDrip')
     """
     def __init__(self, *args, **kwargs):
         self.drip_model = kwargs.get('drip_model')
@@ -257,7 +273,7 @@ class HandleDrip(object):
             subscriber_id__in=target_subscriber_ids
         ).values_list('subscriber_id', flat=True)
         self._queryset = self.get_queryset().exclude(id__in=exclude_subscriber_ids)
-        return
+        return self._queryset
 
     def send(self, next_step=None):
         """
@@ -265,9 +281,6 @@ class HandleDrip(object):
         Create SendDrip for each subscriber that gets a message.
         Returns count of created SendDrips.
         """
-
-        if not self.from_email:
-            self.from_email = getattr(settings, 'DRIP_FROM_EMAIL', settings.DEFAULT_FROM_EMAIL)
         MessageClass = message_class_for(self.drip_model.message_class)
 
         count = 0

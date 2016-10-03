@@ -151,7 +151,9 @@ class DripAdmin(ContentEditor):
     def drip_broadcast_preview(self, request, drip_id):
         from django.shortcuts import render, get_object_or_404
         drip = get_object_or_404(Drip, id=drip_id)
-        qs = drip.handler().get_queryset()
+        handler = drip.handler()
+        handler.prune()  # Only show us subscribers that we're going to be sending to
+        qs = handler.get_queryset()
         ctx = Context({
             'drip': drip,
             'queryset_preview': qs[:20],
@@ -164,9 +166,9 @@ class DripAdmin(ContentEditor):
         from django.shortcuts import get_object_or_404
         from django.http import HttpResponse
         drip = get_object_or_404(Drip, id=drip_id)
-        drip.handler().broadcast_run()
+        result_tasks = drip.handler().broadcast_run()
         mime = 'text/plain'
-        return HttpResponse('Broadcast queued for sending.', content_type=mime)
+        return HttpResponse('Broadcast queued to celery. You may leave this page.', content_type=mime)
 
     def view_drip_email(self, request, drip_id, subscriber_id):
         from django.shortcuts import get_object_or_404

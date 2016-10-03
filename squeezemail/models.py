@@ -108,7 +108,7 @@ class Step(CTENode):
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, limit_choices_to=step_choices, null=True, blank=True)
     object_id = GfkLookupField('content_type', null=True, blank=True)
     content_object = GenericForeignKey('content_type', 'object_id')
-    is_active = models.BooleanField(verbose_name="Active", default=True, help_text="If not active, subscribers will still be allowed to move to this step, but this step won't run until it's active. Consider this a good way to 'hold' subscribers on this step. Note: Step children won't run either.")
+    is_active = models.BooleanField(verbose_name="Active", default=True, help_text="If not active, subscribers will still be allowed to move to this step, but this step won't run until it's active. Consider this a good way to 'hold' subscribers on this step. Note: Step children will still run.")
     position = models.PositiveIntegerField(db_index=True, editable=False, default=0)
 
     _cte_node_path = 'cte_path'

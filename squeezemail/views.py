@@ -1,6 +1,6 @@
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import urlparse, urlencode, urlunparse
 
-# from django.core.urlresolvers import reverse
+from django.core.urlresolvers import reverse
 from django.http import HttpResponseRedirect, HttpResponse
 
 from google_analytics_reporter.utils import get_client_id
@@ -55,3 +55,7 @@ def link_click(request):
     redirect_url = urlunparse(redirect_parsed_url)
 
     return HttpResponseRedirect(redirect_url)
+
+
+def unsubscribe(request):
+    return
