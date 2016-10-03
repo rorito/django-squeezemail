@@ -34,7 +34,7 @@ class StepAdmin(TreeAdmin):
     model = Step
     generic_raw_id_fields = ['content_object']
     raw_id_fields = ('parent',)
-    list_display = ('indented_title', 'move_column')
+    list_display = ('indented_title', 'move_column', 'get_active_subscribers_count')
 
 
 class DecisionAdmin(admin.ModelAdmin):
@@ -58,11 +58,15 @@ class DecisionAdmin(admin.ModelAdmin):
             request, object_id, extra_context=self.build_extra_context(extra_context))
 
 
+class FunnelAdmin(admin.ModelAdmin):
+    list_display = ('__str__', 'get_subscription_count')
+
+
 admin.site.register(Step, StepAdmin)
 admin.site.register(Modify)
 admin.site.register(Delay)
 admin.site.register(Decision, DecisionAdmin)
-admin.site.register(Funnel)
+admin.site.register(Funnel, FunnelAdmin)
 
 
 class DripSplitSubjectInline(admin.TabularInline):

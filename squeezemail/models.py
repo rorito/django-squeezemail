@@ -91,6 +91,11 @@ class Funnel(models.Model):
             subscriber.move_to_step(self.entry_step_id)
         return subscription
 
+    def get_subscription_count(self):
+        return self.subscriptions.count()
+
+    get_subscription_count.short_description = "Subscriptions"
+
 
 step_choices = models.Q(app_label='squeezemail', model='decision') |\
         models.Q(app_label='squeezemail', model='delay') |\
@@ -108,6 +113,7 @@ class Step(CTENode):
 
     _cte_node_path = 'cte_path'
     _cte_node_order_by = ('position',)
+    _cte_node_ordering = 'ordering'
 
     def __str__(self):
         return "%s" % self.description if self.description else str(self.content_object)
@@ -143,6 +149,8 @@ class Step(CTENode):
 
     def get_active_subscribers_count(self):
         return self.subscribers.filter(is_active=True).count()
+
+    get_active_subscribers_count.short_description = "Subscribers on Step"
 
 
 class Modify(models.Model):
