@@ -143,9 +143,9 @@ def process_open(**kwargs):
                     document_title=subject,
                     campaign_id=drip_id,
                     campaign_name=sentdrip.drip.name,
-                    campaign_source='',
+                    # campaign_source='', #broadcast or step?
                     campaign_medium='email',
-                    campaign_content=split
+                    campaign_content=split  # body split test
                 )
         else:
             logger.info("subscriber token didn't match")
@@ -159,33 +159,60 @@ def process_click(**kwargs):
     #TODO: pass subscriber_id through instead of user_id
     url_kwargs = kwargs
 
-    user_token = url_kwargs.get('sq_user_token', None)
-    user_id = url_kwargs.get('sq_user_id', None)
+    token = url_kwargs.get('sq_token', None)
+    subscriber_id = url_kwargs.get('sq_subscriber_id', None)
     drip_id = url_kwargs.get('sq_drip_id', None)
-    # movetosequence = url_kwargs.get('sq_movetosequence', None)
-    tag = url_kwargs.get('sq_tag', None)
+    ga_cid = url_kwargs.get('sq_cid', None)
 
-    if user_token:  # if a user token is passed in and matched, we're allowed to do database writing
-        user = get_user_model().objects.get(pk=user_id)
-        token_matched = str(user_token) == str(get_token_for_email(user))
+    subject_id = url_kwargs.get('sq_subject_id', None)
+    split = url_kwargs.get('sq_split', None)
+    tag_id = url_kwargs.get('sq_tag_id', None)
+
+    if token:  # if a user token is passed in and matched, we're allowed to do database writing
+        subscriber = Subscriber.objects.get(pk=subscriber_id)
+        token_matched = subscriber.match_token(token)
 
         if token_matched:
-            logger.debug("Successfully matched token to user %r.", user.email)
-
-            sentdrip = SendDrip.objects.get(drip_id=drip_id, subscriber_id=user_id)
+            logger.debug("Successfully matched token to user %r.", subscriber.email)
+            sentdrip = SendDrip.objects.get(drip_id=drip_id, subscriber_id=subscriber_id)
+            subject = DripSubject.objects.get(id=subject_id).text
             if not sentdrip.opened:
                 Open.objects.create(senddrip=sentdrip)
-                logger.warning("Sentdrip.open from click")
+                logger.debug("SendDrip.open created")
+                # target=target # don't need this for opens, but could be useful in clicks
+                Event(user_id=subscriber.user_id, client_id=ga_cid)\
+                    .send(
+                    category='email',
+                    action='open',
+                    document_path='/email/',
+                    document_title=subject,
+                    campaign_id=drip_id,
+                    campaign_name=sentdrip.drip.name,
+                    # campaign_source='', #broadcast or step?
+                    campaign_medium='email',
+                    campaign_content=split  # body split test
+                )
 
             if not sentdrip.clicked:
                 Click.objects.create(senddrip=sentdrip)
                 logger.debug('Click created')
 
-            if tag:
+            if tag_id:
                 #TODO: tag 'em
                 pass
 
-            #TODO: process stats (send stuff to google analytics)
+            Event(user_id=subscriber.user_id, client_id=ga_cid)\
+                .send(
+                category='email',
+                action='open',
+                document_path='/email/',
+                document_title=subject,
+                campaign_id=drip_id,
+                campaign_name=sentdrip.drip.name,
+                # campaign_source='', #broadcast or step?
+                campaign_medium='email',
+                campaign_content=split  # body split test
+            )
         else:
             logger.info("user link didn't match token")
 
