@@ -11,14 +11,27 @@ from django.utils import timezone
 from google_analytics_reporter.tracking import Event
 
 from squeezemail import SQUEEZE_PREFIX
-from .models import SendDrip, Drip, Subscriber, Open, Click, DripSubject
-from .utils import get_token_for_email
-
+from .models import SendDrip, Drip, Subscriber, Open, Click, DripSubject, Step, Unsubscribe
 
 LOCK_EXPIRE = (60 * 60) * 24  # Lock expires in 24 hours if it never gets unlocked
 
+
+@task()
+def run_steps():
+    """
+    Runs through all the active Steps, moving subscribers around, sending drips, tagging, etc.
+    Recommended to have 1 worker on this for now until locking is working properly.
+    """
+    for step in Step.objects.filter(is_active=True):
+        step.run()
+    return
+
+
 @task(bind=True)
 def send_drip(self, subscriber_id_list, backend_kwargs=None, **kwargs):
+    """
+    Used to send drips to massive lists (100k+). Sending a broadcast uses this.
+    """
     next_step_id = kwargs.get('next_step_id', None)
     drip_id = kwargs['drip_id']
     first_subscriber_id = subscriber_id_list[0]
@@ -80,6 +93,14 @@ def send_drip(self, subscriber_id_list, backend_kwargs=None, **kwargs):
                                 logger.debug("Successfully sent email message to subscriber %i.", subscriber.pk)
                                 # Move subscriber to next step only after their drip has been sent
                                 subscriber.move_to_step(next_step_id)
+                                process_sent.delay(
+                                    user_id=subscriber.id,
+                                    subject=message_instance.subject,
+                                    drip_id=drip_id,
+                                    drip_name=drip.name,
+                                    source='broadcast',
+                                    split='main'
+                                )
                     except ObjectDoesNotExist as e: #user doesn't exist
                         logger.warning("Subscriber_id %i does not exist. (%r)", subscriber_id, e)
                         continue
@@ -100,6 +121,29 @@ def send_drip(self, subscriber_id_list, backend_kwargs=None, **kwargs):
             logger.info("Drip_id %i chunk successfully sent: %i", drip_id, messages_sent)
         return
     logger.debug('Drip_id %i is already being sent by another worker', drip_id)
+    return
+
+
+@shared_task()
+def process_sent(**kwargs):
+    user_id = kwargs.get('user_id', None)
+    subject = kwargs.get('subject', None)
+    drip_id = kwargs.get('drip_id', None)
+    drip_name = kwargs.get('drip_name', None)
+    source = kwargs.get('source', None)
+    split = kwargs.get('split', None)
+    Event(user_id=user_id)\
+        .send(
+        category='email',
+        action='sent',
+        document_path='/email/',
+        document_title=subject,
+        campaign_id=drip_id,
+        campaign_name=drip_name,
+        campaign_source=source, #broadcast or step?
+        campaign_medium='email',
+        campaign_content=split  # body split test
+    )
     return
 
 
@@ -135,8 +179,8 @@ def process_open(**kwargs):
                 # target=target # don't need this for opens, but could be useful in clicks
                 # event = 'open'?
                 #TODO: switch from .debug to .send to actually send to google
-                Event(user_id=subscriber.user_id, client_id=ga_cid)\
-                    .debug(
+                Event(user_id=subscriber.id, client_id=ga_cid)\
+                    .sync_send(
                     category='email',
                     action='open',
                     document_path='/email/',
@@ -156,7 +200,6 @@ def process_open(**kwargs):
 
 @shared_task()
 def process_click(**kwargs):
-    #TODO: pass subscriber_id through instead of user_id
     url_kwargs = kwargs
 
     token = url_kwargs.get('sq_token', None)
@@ -177,11 +220,12 @@ def process_click(**kwargs):
             sentdrip = SendDrip.objects.get(drip_id=drip_id, subscriber_id=subscriber_id)
             subject = DripSubject.objects.get(id=subject_id).text
             if not sentdrip.opened:
+                # If there isn't an open, but it was clicked, we make an open.
                 Open.objects.create(senddrip=sentdrip)
                 logger.debug("SendDrip.open created")
                 # target=target # don't need this for opens, but could be useful in clicks
-                Event(user_id=subscriber.user_id, client_id=ga_cid)\
-                    .send(
+                Event(user_id=subscriber.id, client_id=ga_cid)\
+                    .sync_send(
                     category='email',
                     action='open',
                     document_path='/email/',
@@ -196,27 +240,69 @@ def process_click(**kwargs):
             if not sentdrip.clicked:
                 Click.objects.create(senddrip=sentdrip)
                 logger.debug('Click created')
+                Event(user_id=subscriber.id, client_id=ga_cid)\
+                    .sync_send(
+                    category='email',
+                    action='click',
+                    document_path='/email/',
+                    document_title=subject,
+                    campaign_id=drip_id,
+                    campaign_name=sentdrip.drip.name,
+                    # campaign_source='', #broadcast or step?
+                    campaign_medium='email',
+                    campaign_content=split  # body split test
+                )
 
             if tag_id:
                 #TODO: tag 'em
                 pass
 
-            Event(user_id=subscriber.user_id, client_id=ga_cid)\
-                .send(
-                category='email',
-                action='open',
-                document_path='/email/',
-                document_title=subject,
-                campaign_id=drip_id,
-                campaign_name=sentdrip.drip.name,
-                # campaign_source='', #broadcast or step?
-                campaign_medium='email',
-                campaign_content=split  # body split test
-            )
         else:
             logger.info("user link didn't match token")
 
     logger.info("Email click processed")
+    return
+
+
+@shared_task()
+def process_unsubscribe(**kwargs):
+    url_kwargs = kwargs
+
+    token = url_kwargs.get('sq_token', None)
+    subscriber_id = url_kwargs.get('sq_subscriber_id', None)
+    drip_id = url_kwargs.get('sq_drip_id', None)
+    ga_cid = url_kwargs.get('sq_cid', None)
+
+    subject_id = url_kwargs.get('sq_subject_id', None)
+    split = url_kwargs.get('sq_split', None)
+    tag_id = url_kwargs.get('sq_tag_id', None)
+
+    if token:  # if a user token is passed in and matched, we're allowed to do database writing
+        subscriber = Subscriber.objects.get(pk=subscriber_id)
+        token_matched = subscriber.match_token(token)
+
+        if token_matched:
+            logger.debug("Successfully matched token to user %r.", subscriber.email)
+            sentdrip = SendDrip.objects.get(drip_id=drip_id, subscriber_id=subscriber_id)
+            subject = DripSubject.objects.get(id=subject_id).text
+            if not sentdrip.unsubscribed:
+                Unsubscribe.objects.create(senddrip=sentdrip)
+                logger.debug("SendDrip.unsubscribed created")
+                # target=target # don't need this for opens, but could be useful in clicks
+                Event(user_id=subscriber.id, client_id=ga_cid)\
+                    .sync_send(
+                    category='email',
+                    action='unsubscribe',
+                    document_path='/email/',
+                    document_title=subject,
+                    campaign_id=drip_id,
+                    campaign_name=sentdrip.drip.name,
+                    # campaign_source='', #broadcast or step?
+                    campaign_medium='email',
+                    campaign_content=split  # body split test
+                )
+        else:
+            logger.info("user link didn't match token")
     return
 
 try:
