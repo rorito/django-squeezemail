@@ -4,6 +4,7 @@ import logging
 import html2text
 from django.utils.safestring import mark_safe
 
+from google_analytics_reporter.tracking import Event
 from squeezemail.renderer import renderer
 
 PY3 = sys.version_info > (3, 0)
@@ -30,7 +31,7 @@ from content_editor.contents import contents_for_item
 from content_editor.renderer import PluginRenderer
 from .utils import get_token_for_email
 from . import SQUEEZE_CELERY_EMAIL_CHUNK_SIZE, SQUEEZE_DEFAULT_HTTP_PROTOCOL, SQUEEZE_DEFAULT_FROM_EMAIL
-from .tasks import send_drip
+from .tasks import send_drip, process_sent
 from .models import SendDrip, Subscriber, RichText, Image
 from .utils import chunked
 
@@ -97,7 +98,8 @@ class DripMessage(object):
                 'user': self.subscriber.user,
                 'drip': self.drip,
                 'token': token,
-                'tracking_pixel': self.tracking_pixel
+                'tracking_pixel': self.tracking_pixel,
+                'unsubscribe_link': self.unsubscribe_link
                 })
             context['content'] = mark_safe(self.replace_urls(Template(self.render_body()).render(context)))
             self._context = context
@@ -130,7 +132,7 @@ class DripMessage(object):
     @property
     def message(self):
         if not self._message:
-            self._message = EmailMultiAlternatives(self.subject, self.plain, self.from_email, [self.subscriber.user.email])
+            self._message = EmailMultiAlternatives(self.subject, self.plain, self.from_email, [self.subscriber.email])
             self._message.attach_alternative(self.body, 'text/html')
         return self._message
 
@@ -219,6 +221,18 @@ class DripMessage(object):
         )
         return mark_safe(urlunparse(p))
 
+    @cached_property
+    def unsubscribe_link(self):
+        url_params = {'sq_email': self.subscriber.email}
+        url_params.update(self.extra_url_params)
+        l = urlparse('')._replace(
+            scheme=SQUEEZE_DEFAULT_HTTP_PROTOCOL,
+            netloc=self.current_domain,
+            path=reverse('squeezemail:unsubscribe'),
+            query=urlencode(url_params)
+        )
+        return mark_safe(urlunparse(l))
+
 
 class HandleDrip(object):
     """
@@ -296,6 +310,15 @@ class HandleDrip(object):
                     SendDrip.objects.create(drip=self.drip_model, subscriber=subscriber, sent=True)
                     if next_step:
                         subscriber.move_to_step(next_step.id)
+                    # send a 'sent' event to google analytics
+                    process_sent.delay(
+                        user_id=subscriber.user_id,
+                        subject=message_instance.subject,
+                        drip_id=self.drip_model.id,
+                        drip_name=self.drip_model.name,
+                        source='step',
+                        split='main'
+                    )
                     count += 1
             except Exception as e:
                 logging.error("Failed to send drip %s to subscriber %s: %s" % (str(self.drip_model.id), str(subscriber), e))
