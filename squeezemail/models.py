@@ -152,6 +152,10 @@ class Step(CTENode):
 
     get_active_subscribers_count.short_description = "Subscribers on Step"
 
+    #Modify method
+    def step_move(self, subscriber):
+        return subscriber.move_to_step(self.id)
+
 
 class Modify(models.Model):
     """
@@ -735,10 +739,18 @@ class Subscriber(models.Model):
         return self.get_token()
 
     def match_token(self, token):
-        if str(token) == str(self.get_token()):
-            return True
-        else:
-            return False
+        return str(token) == str(self.token)
+
+    def step_remove(self, subscriber):
+        """
+        Used by a 'Modify' step. it'll call this and pass in the subscriber.
+        It may feel stupid since we're not using self.is_active
+        """
+        subscriber.is_active = False
+        subscriber.save()
+        return subscriber
+
+
 
 
 class FunnelSubscription(models.Model):
