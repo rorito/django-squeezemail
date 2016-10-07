@@ -78,6 +78,6 @@ setup(
         "celery >= 3.1.22",
         "python-memcached >= 1.57",
         "html2text >= 2016.9.19",
-        "django-google-analytics-reporter >= 0.0.3",
+        "django-google-analytics-reporter >= 0.0.6",
     ],
 )
