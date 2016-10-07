@@ -1,0 +1,10 @@
+{% extends "admin/squeezemail/queryset_rules.html" %}
+{% load i18n admin_static admin_list %}
+{% load admin_urls %}
+
+{% block object-tools-items %}
+    <li><a href="{% url 'admin:view_drip_email' drip_id=original.id subscriber_id=1 %}" class="">Preview</a></li>
+    <li><a href="{% url 'admin:drip_broadcast_preview' original.id %}" class="">Broadcast Preview</a></li>
+    <li><a href="history/" class="historylink">{% trans "History" %}</a></li>
+    {% if has_absolute_url %}<li><a href="../../../r/{{ content_type_id }}/{{ object_id }}/" class="viewsitelink">{% trans "View on site" %}</a></li>{% endif%}
+{% endblock %}

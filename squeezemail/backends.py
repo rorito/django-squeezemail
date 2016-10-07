@@ -13,7 +13,7 @@ class SqueezeEmailBackend(CeleryEmailBackend):
     # def send_drips(self, email_messages):
     #     result_tasks = []
     #     messages = [email_to_dict(msg) for msg in email_messages]
-    #     for chunk in chunked(messages, settings.CELERY_EMAIL_CHUNK_SIZE):
+    #     for chunk in chunked(messages, settings.SQUEEZE_CELERY_EMAIL_CHUNK_SIZE):
     #         result_tasks.append(send_drip.delay(chunk, self.init_kwargs))
     #     return result_tasks
 

@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_static admin_modify %}
+{% load admin_urls %}
+
+{% block title %}Viewing Broadcast for {{ drip.name }}{% endblock title %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+<h1><b>{{ drip.name }}</b> will be sending to <b>{{ count }}</b> subscribers. Start sending now? <a href="{% url 'admin:drip_broadcast_send' drip.id %}">Send Now</a></h1>
+
+<div class="content-main">
+    Preview any of the first 20 drips to be sent:<br>
+    <ul>
+        {% for preview in queryset_preview %}
+            <li><a href="{% url 'admin:view_drip_email' drip_id=drip.id subscriber_id=preview.id %}">{{ preview }}</a></li>
+        {% endfor %}
+
+    </ul>
+
+
+</div>
+{% endblock content %}
