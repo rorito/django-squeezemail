@@ -79,5 +79,6 @@ setup(
         "python-memcached >= 1.57",
         "html2text >= 2016.9.19",
         "django-google-analytics-reporter >= 0.0.6",
+        "django-gfklookupwidget <= 1.0.5"
     ],
 )
