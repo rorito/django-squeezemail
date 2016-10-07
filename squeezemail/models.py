@@ -387,17 +387,22 @@ class Drip(models.Model):
         pass
 
     def step_run(self, step, qs):
-        pruned_queryset = self.prune_queryset(qs)
-        self.handler(step=step, queryset=pruned_queryset).step_run()
+        not_received, have_received = self.split_received(qs)
+        self.handler(step=step, queryset=not_received).step_run()
+        next_step = step.get_next_step()
+        if next_step:
+            for subscriber in have_received:
+                subscriber.move_to_step(next_step.id)
         return qs
 
-    def prune_queryset(self, queryset):
+    def split_received(self, queryset):
         # Exclude all subscribers who have a SendDrip already
         target_subscriber_ids = queryset.values_list('id', flat=True)
-        exclude_subscriber_ids = SendDrip.objects.filter(drip_id=self.id, subscriber_id__in=target_subscriber_ids)\
+        have_received_ids = SendDrip.objects.filter(drip_id=self.id, subscriber_id__in=target_subscriber_ids)\
             .values_list('subscriber_id', flat=True)
-        pruned_queryset = queryset.exclude(id__in=exclude_subscriber_ids)
-        return pruned_queryset
+        not_received = queryset.exclude(id__in=have_received_ids)
+        have_received = queryset.filter(id__in=have_received_ids)
+        return not_received, have_received
 
     def apply_queryset_rules(self, qs):
         """
