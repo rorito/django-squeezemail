@@ -57,7 +57,7 @@ if sys.argv[-1] == 'publish':
 
 setup(
     name='django-squeezemail',
-    version='0.2.0',
+    version='0.9.0',
     author=author,
     author_email=author_email,
     packages=get_packages(package),
@@ -67,13 +67,17 @@ setup(
     description=description,
     long_description=open('README.rst').read(),
     install_requires=[
-        "Django >= 1.8.-",
+        "Django >= 1.9.-",
         "feincms3 >= 0.11.0",
+        "django-content-editor",
+        'django-cte-forest',
+        'django-versatileimagefield',
         "feincms-cleanse",
         "django-timedeltafield >= 0.7.10",
-        "django-tinymce >= 2.3.0",
+        "django-ckeditor",
         "celery >= 3.1.22",
         "python-memcached >= 1.57",
         "html2text >= 2016.9.19",
+        "django-google-analytics-reporter >= 0.0.2",
     ],
 )

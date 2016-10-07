@@ -1,5 +1,6 @@
 from django.conf import settings
 
+
 """
 Here lies default settings.
 """
