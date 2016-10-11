@@ -2,7 +2,12 @@ import functools
 import operator
 import logging
 # from collections import OrderedDict
-from _md5 import md5
+
+
+try:
+    from _md5 import md5  # Python 3
+except ImportError:
+    from hashlib import md5  # Python 2
 
 from cte_forest.models import CTENode
 from cte_forest.fields import DepthField, PathField, OrderingField
