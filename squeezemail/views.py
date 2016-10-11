@@ -1,7 +1,7 @@
 try:
     # Python 3 imports
     from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
- except ImportError:
+except ImportError:
     # Python 2 imports
     from urlparse import urlparse, parse_qs, urlunparse
     from urllib import urlencode
